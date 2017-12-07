@@ -1,0 +1,129 @@
+\documentclass[10pt,letterpaper]{article}
+\usepackage[top=0.85in,footskip=0.75in,marginparwidth=2in]{geometry}
+
+\usepackage{graphicx}% http://ctan.org/pkg/graphicx
+\usepackage{amsmath,amsfonts} % Math packages
+\usepackage{amsthm}
+\usepackage{mathtools}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{bbm}
+\usepackage{bm}
+
+
+% Definitions of handy macros can go here
+\newcommand{\ths}{\textsuperscript{th}{\,}}
+\DeclareRobustCommand{\stirling}{\genfrac\{\}{0pt}{}}
+\newcommand\Multi{\ensuremath{\mathrm{Multi}}}
+\newcommand\Uniform{\ensuremath{\mathrm{Uni}}}
+\newcommand\Beta{\ensuremath{\mathrm{Beta}}}
+\newcommand\Bernoulli{\ensuremath{\mathrm{Bern}}}
+\newcommand\Dirichlet{\ensuremath{\mathrm{Dir}}}
+\newcommand\GammaDist{\ensuremath{\mathrm{Gamma}}}
+\newcommand\CRP{\ensuremath{\mathrm{CRP}}}
+\newcommand\GEM{\ensuremath{\mathrm{GEM}}}
+\newcommand\N{\ensuremath{\mathcal{N}}}
+\newcommand{\indpath}[2]{\mathbin{\mathcal{P}{\left(#1,#2\right)}}} % induced path
+\newcommand\indic[1]{\ensuremath{\mathbbm{1}\left(#1\right)}}
+\newcommand{\SPT}{\mathcal{T}}
+\newcommand{\GSPT}{\overline{\SPT}}
+\newcommand{\SPN}{\mathcal{S}}
+\newcommand{\X}{\mathbf{X}}
+\newcommand{\C}{\mathbf{C}}
+\newcommand{\loss}{\mathcal{L}}
+\newcommand{\K}{\mathbf{K}}
+\newcommand{\data}{\mathcal{D}}
+\newcommand{\x}{\mathbf{x}}
+\newcommand{\y}{\mathbf{y}}
+\newcommand{\xn}{\mathbf{x}_{n}}
+\newcommand{\new}{_{*}}
+\newcommand{\xnd}{x_{n,d}}
+\newcommand{\xd}{\mathbf{x}_{\cdot,d}}
+\newcommand{\z}{\mathbf{z}}
+\newcommand{\ks}{\mathbf{k}}
+\newcommand{\ProductNode}{\mathsf{P}}
+\newcommand{\SumNode}{\mathsf{S}}
+\newcommand{\SumNodes}{\bm{\mathsf{S}}}
+\newcommand{\Leaf}{\mathsf{L}}
+\newcommand{\Child}{\mathsf{C}}
+\newcommand{\Root}{\ensuremath{\mathbf{root}}}
+\newcommand{\ch}{\ensuremath{\mathbf{ch}}}
+\newcommand{\leaf}[1]{\mathbin{\mathbf{leaf}(#1)}} % leaf function
+\newcommand{\leafs}[1]{\mathbin{\mathbf{leafs}(#1)}} % leaf function
+\newcommand{\w}{w}
+\newcommand{\cond}[2]{\mathbin{\left. #1\nonscript\;\middle|\nonscript\; #2 \right.}}
+
+\newtheoremstyle{mystyle}{}{}{}{}{\bf}{}{\newline}{}
+\theoremstyle{mystyle}
+\newtheorem*{definition}{Definition}
+\newtheorem{theorem}{Theorem}
+
+
+\begin{document}
+\title{Learning Gaussian Processes with Sum-Product Networks}
+
+
+\author{}
+
+
+% make the title area
+\maketitle
+\section{Introduction}
+This write-up gives a brief overview on some possibilities to learn Gaussian processes using sum-product networks.
+Before we start, we will give a short recap on SPNs as well as on GPs and introduce the necessary notations. Throughout this work we generally refer to generalized sum-product networks as sum-product networks only.
+
+\subsection{Sum-Product Network}
+\label{sec:spns}
+A sum-product network (SPN) over variables $X_1, \dots, X_D$ is a rooted directed acyclic graph whose leaves are univariate distributions and whose internal nodes are sums and products. Each edge $(\SumNode,\Child)$ emanating from a sum node $\SumNode$ has a non-negative weight $\w_{\SumNode,\Child}$ and the value of a sum node is $\SumNode(\x) = \sum_{\Child \in \ch(\SumNode)} \w_{\SumNode,\Child} \Child(\x)$, where $\ch(\SumNode)$ are the children of $\SumNode$ and $\Child(\x)$ is the value of node $\Child$. For simplicity, we assume that $\sum_{\Child \in \ch(\SumNode)} \w_{\SumNode,\Child} = 1$. The value of a product node is the product of the values of its children and the value of a leaf node is computed according to its probability density function associated with the leaf. The value of an SPN $\SPN(\x)$ is the probability density value of $\x$ under the root of $\SPN$.
+Further we denote an SPN to be valid if each sum node is complete and each product node is decomposable.
+A sum node is complete all children have the same scope and a product node is decomposable if the children partition the product's scope into non-empty disjoint sub-scopes.
+In the following we will only consider valid SPNs.
+
+\subsection{Gaussian Process} \label{sec:gps}
+A Gaussian process (GP) is prior over functions which can be applied for classification and regression problems.
+In the following dicussion we will focus on the use of GPs for regression, i.e. $y = f(\x) + \epsilon$, the extension to classification problems is straigth forward.
+Further we will assume that the prior mean is $0$ and let $\theta = \{\alpha, \sigma_{\epsilon}\}$ denote the parameters of the GP for which $\alpha$ is a kernel specific hyper-parameter and $\sigma_{\epsilon}$ the variance of the noise model assumed, i.e. $\epsilon \sim \N(0, \sigma_{\epsilon}^2)$.
+Given a set of training data $\data = \{(\xn, y_n)\}_{n=1}^{N}$ we can optimize the parameters of a GP by minimizing the negative log marignal likelihood, i.e.
+\[
+  \loss = - \log p(\y | \X, \theta) = \frac{1}{2} \log \det(\C) + \frac{1}{2}(\y^T \C^{-1} \y) + \frac{N}{2} \log 2\pi
+\]
+where $\C = \K + \sigma^2_{\epsilon}$ and $\K_{ij} = k(\x_i, \x_j)$ being the covariance matrix / kernel matrix and $k(\x_i, \x_j)$ and appropriate covariance function / kernel function.
+Given some hyper-parameters and the training data, our main goal is to estimate a prediction for an unseen data point $\x\new$. 
+We are therefore interested in the posterior predictive distribution of $f\new = f(\x\new)$.
+Therefore, first consider the joint training and testing marginal likelihood for $T$ test samples, which is
+\[
+  p(\y, \y_T) = \N(\bm 0, \K_{N+T} + \sigma^2_{\epsilon}\bm I) \, ,
+\]
+where
+\[
+\K_{N+T} = \left[ \begin{array}{cc}
+\K_{N} & \K_{NN} \\
+\K_{TN} & \K{T} \end{array} \right] \, .
+\]
+For a single data point $\x\new$ we therefore obtain the following posterior predictive, which is a Gaussian with mean and variance given by:
+\begin{align}
+  \mu\new &= \K_{\new N} (\K_N + \sigma^2_{\epsilon}\bm I)^{-1} \y \\
+  \sigma\new &= K_{\new} - \K_{\new N}(\K_N + \sigma^2_{\epsilon}\bm I)^{-1} \K_{N \new} + \sigma^2_{\epsilon} \, .
+\end{align}
+Note that for multiple test samles, the posterior predictive distribution is multivariate but for practical reasons often only the diagonal is considered.
+
+\section{Merging GPs with SPNs}
+In the follwing section we will discuss a few possible solution to utilise SPNs for efficient or effective learning of GPs.
+
+
+%\begin{thebibliography}{1}
+
+%\bibitem{IEEEhowto:kopka}
+%H.~Kopka and P.~W. Daly, \emph{A Guide to {\LaTeX}}, 3rd~ed.\hskip 1em plus
+%  0.5em minus 0.4em\relax Harlow, England: Addison-Wesley, 1999.
+
+%\end{thebibliography}
+
+
+
+
+
+% that's all folks
+\end{document}
+
+
