@@ -9,7 +9,7 @@
 \usepackage{subcaption}
 \usepackage{bbm}
 \usepackage{bm}
-
+\usepackage{listings}
 
 % Definitions of handy macros can go here
 \newcommand{\ths}{\textsuperscript{th}{\,}}
@@ -23,6 +23,7 @@
 \newcommand\CRP{\ensuremath{\mathrm{CRP}}}
 \newcommand\GEM{\ensuremath{\mathrm{GEM}}}
 \newcommand\N{\ensuremath{\mathcal{N}}}
+\DeclareMathOperator{\E}{\mathbb{E}}
 \newcommand{\indpath}[2]{\mathbin{\mathcal{P}{\left(#1,#2\right)}}} % induced path
 \newcommand\indic[1]{\ensuremath{\mathbbm{1}\left(#1\right)}}
 \newcommand{\SPT}{\mathcal{T}}
@@ -58,13 +59,17 @@
 \newtheorem*{definition}{Definition}
 \newtheorem{theorem}{Theorem}
 
+% bibtex
+\usepackage[
+backend=biber,
+style=alphabetic,
+sorting=ynt
+]{biblatex}
+\addbibresource{latex/references.bib}
 
 \begin{document}
 \title{Learning Gaussian Processes with Sum-Product Networks}
-
-
 \author{}
-
 
 % make the title area
 \maketitle
@@ -78,19 +83,21 @@ A sum-product network (SPN) over variables $X_1, \dots, X_D$ is a rooted directe
 Further we denote an SPN to be valid if each sum node is complete and each product node is decomposable.
 A sum node is complete all children have the same scope and a product node is decomposable if the children partition the product's scope into non-empty disjoint sub-scopes.
 In the following we will only consider valid SPNs.
+\subsubsection{Induced Tree}
+
 
 \subsection{Gaussian Process} \label{sec:gps}
-A Gaussian process (GP) is prior over functions which can be applied for classification and regression problems.
+A Gaussian process (GP) is a prior over functions which can be applied for classification or regression problems.
 In the following dicussion we will focus on the use of GPs for regression, i.e. $y = f(\x) + \epsilon$, the extension to classification problems is straigth forward.
 Further we will assume that the prior mean is $0$ and let $\theta = \{\alpha, \sigma_{\epsilon}\}$ denote the parameters of the GP for which $\alpha$ is a kernel specific hyper-parameter and $\sigma_{\epsilon}$ the variance of the noise model assumed, i.e. $\epsilon \sim \N(0, \sigma_{\epsilon}^2)$.
 Given a set of training data $\data = \{(\xn, y_n)\}_{n=1}^{N}$ we can optimize the parameters of a GP by minimizing the negative log marignal likelihood, i.e.
 \[
   \loss = - \log p(\y | \X, \theta) = \frac{1}{2} \log \det(\C) + \frac{1}{2}(\y^T \C^{-1} \y) + \frac{N}{2} \log 2\pi
 \]
-where $\C = \K + \sigma^2_{\epsilon}$ and $\K_{ij} = k(\x_i, \x_j)$ being the covariance matrix / kernel matrix and $k(\x_i, \x_j)$ and appropriate covariance function / kernel function.
+where $\C = \K + \sigma^2_{\epsilon}$ and $\K_{ij} = k(\x_i, \x_j)$ being the covariance matrix / kernel matrix and $k(\x_i, \x_j)$ an appropriate covariance function / kernel function.
 Given some hyper-parameters and the training data, our main goal is to estimate a prediction for an unseen data point $\x\new$. 
-We are therefore interested in the posterior predictive distribution of $f\new = f(\x\new)$.
-Therefore, first consider the joint training and testing marginal likelihood for $T$ test samples, which is
+We are therefore interested in the posterior predictive distribution, i.e. $p(\y\new | \x\new, \data)$.
+First consider the joint training and testing marginal likelihood for $T$ test samples, which is
 \[
   p(\y, \y_T) = \N(\bm 0, \K_{N+T} + \sigma^2_{\epsilon}\bm I) \, ,
 \]
@@ -98,32 +105,147 @@ where
 \[
 \K_{N+T} = \left[ \begin{array}{cc}
 \K_{N} & \K_{NN} \\
-\K_{TN} & \K{T} \end{array} \right] \, .
+\K_{TN} & \K_{T} \end{array} \right] \, .
 \]
-For a single data point $\x\new$ we therefore obtain the following posterior predictive, which is a Gaussian with mean and variance given by:
+For a single data point $\x\new$ we therefore obtain a posterior predictive which is a Gaussian with mean and variance given by:
 \begin{align}
-  \mu\new &= \K_{\new N} (\K_N + \sigma^2_{\epsilon}\bm I)^{-1} \y \\
-  \sigma\new &= K_{\new} - \K_{\new N}(\K_N + \sigma^2_{\epsilon}\bm I)^{-1} \K_{N \new} + \sigma^2_{\epsilon} \, .
+  \mu\new &= \K_{\new N} (\K_N + \sigma^2_{\epsilon}\bm I)^{-1} \y \, ,\\
+  \sigma\new &= K_{\new} - \K_{\new N}(\K_N + \sigma^2_{\epsilon}\bm I)^{-1} \K_{N \new} + \sigma^2_{\epsilon} \, ,\\
+  \y\new | \x\new, \data &\sim \N(\mu\new, \sigma\new)\, . \label{eq:posteriorGP}
 \end{align}
-Note that for multiple test samles, the posterior predictive distribution is multivariate but for practical reasons often only the diagonal is considered.
+Note that for multiple test samples, the posterior predictive distribution is multivariate but for practical reasons often only the diagonal is considered.
+For simplicity, we will therefore always refer to Eq.~\ref{eq:posteriorGP} if we talk about the posterior predictive of a GP.
 
-\section{Merging GPs with SPNs}
+\section{Merging Gaussian Processes with Sum-Product Networks}
 In the follwing section we will discuss a few possible solution to utilise SPNs for efficient or effective learning of GPs.
+The most natural way to think about utilising SPNs for learning of GPs is a hierarchical experts model.
+We can divide such an approach into Product of Experts (PoE) based approaches or Mixture of Experts (MoE) based approaches.
+\subsection{Product of Experts}
+In particular a PoE based approach, such as in \cite{Deisenroth2015}, assume a sub-devision of the observations resulting in a factorised marginal likelihood into $M$ independent GPs, i.e.
+\[
+  p(\y | \X, \theta) \approx \prod_{m=1}^M p_m(\y_m | \X_m, \theta) \, ,
+\]
+with shared hyper-parameters $\theta$. Note that $\y_m = \{y_n : z_n = m\}$ and $\X_m = \{\xn : z_n = m\}$ where $\bm z = \{z_n\}_{n=1}^N$ are latent assignments of the training samples to the $M$ independent experts.
+Such an approach however, results in a predictive posterior distribution which depends on all GPs.
+In particular, in the PoE framework the function value of an unseen data point is estimates based on the product of all independent GPs resulting in straight forward computation of the mean and variance, i.e. the product of  Gaussians PDFs is again Gaussian.
+The mean and variance are given by:
+\begin{align}
+  \mu\new &= \sigma\new^2 \sum_{m=1}^M \sigma_m^{-2}(\x\new) \mu_m(\x\new) \, , \\
+  \sigma\new^{-2} &= \sum_{m=1}^M \sigma_m^{-2}(\x\new) \, .
+\end{align}
+which indicates one of the problems arising in PoE models, i.e. with increasing $M$ the predictive variance vanishes and the model is over-confident. 
+Moreover, this approach estimates the function value of $\x\new$ based on all independent GPs, even those which are not trained on data which is in the vicinity of $\x\new$.
+Further, the assumption that the hyper-parameters are shared accross the independent GPs seems somewhat strange.
+The advantage is that such an approach is very easy to realize, as shown in Listing~\ref{lst:poe}, but on the other hand results in a less 'degenerated' GP.
+
+\subsection{Mixture of Experts}
+An alternative approach to the PoE is the use of a mixture such as in \cite{RasmussenG2001}.
+This approach leads to a mixture model expression in which the mixture is called a gating network, i.e.
+\[
+  p(\y | \X, \theta) = \sum_{m=1}^M p(\y | \bm z, \X, \theta_m) p(\bm z | \X, \alpha) \,
+\]
+where $\alpha$ are hyper-parameters of the gating network and $\bm z =\{z_n\}_{n=1}^N$ is a configuration indicating the assignments of the data points to experts.
+Note that hyper-parameters of the experts under such a model are not shared.
+Further note that such an approach marginalizes over possible configurations, which naturally results in a Bayesian nonparametrics formulation which we will not discuss in more detail right know.
+Given training data points, hyper-parameters and a configuration we can estimate the function value of an unseen observation as follows: (1) Estimate the indicator variable $z\new$, (2) estimate the function value solely based on the selected GP:
+\begin{align}
+  \mu\new &= \sum_{m=1}^M \indic{z\new = m} \mu_m(\x\new) \, , \\
+  \sigma\new &= \sum_{m=1}^M \indic{z\new = m} \sigma_m(\x\new) \, .
+\end{align}
+As a consequence, predictions from this model are based on GPs which have been trained on the region of interest only.
+This approach implies that it is possible to obtain such indicator variables.
+Further, for efficient learning this approach might be problematic as it requires to find an appropriate configuration of the training data.
+A possible solution to this might be an adaption of the approx. MAP inference approach for DP mixtures by \cite{Raykov2016} which could replace the MCMC step described in \cite{RasmussenG2001}.
+
+\subsection{SPN Mixture of Experts}
+We can see that a SPN of GP experts follows directly from the work of \cite{RasmussenG2001} and the fact that we can interpret sum nodes (mixtures) as gating networks.
+We can therefore write the resulting model as follows:
+\[
+  p(\y | \X, \theta) = \prod_{n=1}^N \sum_{t=1}^{\tau} p(z_n = t | \xn, \alpha) \prod_{d=1}^D p(y_n | z_n = t, x_{d,n}, \theta_{t,d})
+\]
+where we use the mixture of induced trees representation of SPN, i.e. $\tau$ is the number of unique induced trees in the network.
+Doing predictions under such a model again involves: (1) estimating the latent indicator $z\new$ of the unseen data point, (2) predicting the function value solely on the selected GPs with kernel function over a single dimenions.
+In contrast to the mixture of experts model, the GP experts can be assumed to be estimated over a smaller subset.
+We will not have mixing in the prediction phase but instead only draw the function values from $D$ independent GP experts. 
+This might lead to bad predictions.
+A natural way of extending such an approach would be to add additional sum nodes which do not act as gating networks but instead allow for mixing of the PDFs.
+The resulting model would not be in the class of GPs anymore, as observations under such an model are drawn according to a mixture of Gaussians instead, i.e.
+\[
+  p(y\new | z\new, \x\new, \data) = \sum_{m=1}^M w_m p_{z\new}(y\new | \x\new, \data_{z\new}) \, ,
+\]
+where $\data_{z\new}$ is the sub-set of training data points with indicator assigned to induced tree $z\new$. Hence we recover the dependencies in the PDF of the posterior predictive distribution. However, drawing samples from this posterior predictive distribution is difficult, i.e. in a common scheme we would draw a component according to the mixing proportions which will again lead to selecting a product of independent GPs learned over a small set of training data only. 
+This approach would therefore, return to the original idea.
+One possible solution to this would be to approximate the predictive posterior by a Gaussian distribution, i.e. compute the mixture mean and variance as follows: 
+\begin{align}
+  \mu(y\new) &= \sum_{m=1}^M w_m \mu_m(\x\new) \, , \\
+  \sigma(\x\new) &= \sum_{m=1}^M w_m \sigma^2_m(\x\new) + \sum_{m=1}^M w_m (\mu_m(\x\new))^2 - \left(\sum_{m=1}^M w_m \mu_m(\x\new)\right)^2\ ,
+\end{align}
+which follows immediatly from the fact that the k\ths moment is computed according to:
+\[
+  \E_{p}[\x^k] = \sum_{m=1}^M w_m \E_{p_m}[x^k] \, .
+\]
+In general approximating a mixture model, which can assumed to be multi-modal, with a single Gaussian is doubtful.
+However, in this case we can follow a simple yet convincing argumentation which justifies the approximation and indicates that we can expect the mixture model to be unimodal.
+% Justification comes here!
+
+An alternative approach would be to sum the draws from the independent GPs, i.e.
+\[
+  y\new = \sum_{m=1}^M w_m y\new(m)
+\]
+where $y\new(m)$ is the draw from component $m$ which would lead to function values drawn according to a posterior predictive which again is Gaussian, i.e.
+\[
+  y\new \sim \N\left(\sum_{m=1}^M w_m\mu\new(m), \sum_{m=1}^M (w_m \sigma\new(m))^2\right) \, ,
+\]
+where $\mu\new(m)$ and $\sigma\new(m)$ are the parameters of the posterior predictive distributions of the independent components.
+However, such an approach would not be within the framework of valid SPNs and it is not clear how to learn such a model.
+
+\appendix
+\section{Code Examples using GPFlow}
+\lstset{language=Python}
+\lstset{frame=lines}
+\lstset{caption={Code example for PoE model with GPFlow}}
+\lstset{label={lst:poe}}
+\lstset{basicstyle=\footnotesize}
+\begin{lstlisting}
+import gpflow
+
+X, y = ...# read some data
+
+M = 20 # Number of experts
+poe = [] # List of experts
+
+# Generate random splits (we assume that 0 < x < 1)
+splitsPos = np.sort(np.random.rand(experts-1))
+
+# Training of experts
+for (startPos, endPos) in zip(np.hstack([0, splitsPos]), np.hstack([splitsPos, 1])):
+  X_ = X[(X > endPos) & (X >= startPos)]
+  Y_ = Y[(X > endPos) & (X >= startPos)]
 
 
-%\begin{thebibliography}{1}
+  k = gpflow.kernels.RBF(1) # Sepecify kernel of choice
+  m = gpflow.models.GPR(np.matrix(X_).T, np.matrix(Y_).T, kern=k)
+  m.compile()
+  m.optimize()
+  poe.append(m)
+    
+# Prediction using PoE
+x = ... # unseen data point    
+    
+ymean = np.zeros(len(M))
+yvar = np.zeros(len(M))
 
-%\bibitem{IEEEhowto:kopka}
-%H.~Kopka and P.~W. Daly, \emph{A Guide to {\LaTeX}}, 3rd~ed.\hskip 1em plus
-%  0.5em minus 0.4em\relax Harlow, England: Addison-Wesley, 1999.
+for (mi, m) in enumerate(M):
+  mean, var = m.predict_y(x)
+  ymean[:,mi] = mean[:,0]
+  yvar[:,mi] = var[:,0]
+            
+var =  1 / np.sum(1 / yvar, 1)
+mean = var * np.sum(np.divide(ymean, yvar), 1)
+\end{lstlisting}
 
-%\end{thebibliography}
+\printbibliography
 
-
-
-
-
-% that's all folks
 \end{document}
 
 
