@@ -137,79 +137,110 @@ where we use $\kk_{\new}$ as a shorthand for the vector between the test point a
 %For simplicity, we will therefore always refer to Eq.~\ref{eq:posteriorGP} if we talk about the posterior predictive of a GP.
 
 \section{Merging Gaussian Processes with Sum-Product Networks}
-In the following section we will discuss a few possibilities to combine SPNs with GPs.
-The most natural way to think about utilizing SPNs for learning of GPs is a hierarchical experts model.
-We can divide GP experts approaches into Product of Experts (PoE) based approaches or Mixture of Experts (MoE) based approaches. We will briefly review those approaches.
-\subsection{Product of Experts}
-A PoE based approach, such as those described in \cite{Deisenroth2015}, assumes a factorised marginal likelihood into $M$ independent GPs, i.e.
-\[
-  p(\y | \X, \theta) \approx \prod_{m=1}^M p_m(\y_m | \X_m, \theta) \, ,
-\]
-with shared hyper-parameters $\theta$. Note that $\y_m = \{y_n : z_n = m\}$ and $\X_m = \{\xn : z_n = m\}$ where $\bm z = \{z_n\}_{n=1}^N$ are latent assignments of the training samples to the $M$ independent experts.
-Such an approach however, results in a predictive posterior distribution which depends on all GPs.
-In particular, in the PoE framework the function value of an unseen data point is estimated based on the product of all independent GPs resulting in straight forward computation of the mean and variance, i.e. the product of  Gaussians PDFs is again Gaussian.
-The mean and variance are given by:
-\begin{align}
-  \mu\new &= \sigma\new^2 \sum_{m=1}^M \sigma_m^{-2}(\x\new) \mu_m(\x\new) \, , \\
-  \sigma\new^{-2} &= \sum_{m=1}^M \sigma_m^{-2}(\x\new) \, .
-\end{align}
-which indicates one of the problems arising in PoE models, i.e. with increasing $M$ the predictive variance vanishes and the model is over-confident. 
-Moreover, this approach estimates the function value of $\x\new$ based on all independent GPs, even those which are not trained on data which is in the vicinity of $\x\new$.
+%In the following section we will discuss a few possibilities to combine SPNs with GPs.
+%The most natural way to think about utilizing SPNs for learning of GPs is a hierarchical experts model.
+%We can divide GP experts approaches into Product of Experts (PoE) based approaches or Mixture of Experts (MoE) based approaches. We will briefly review those approaches.
+%\subsection{Product of Experts}
+%A PoE based approach, such as those described in \cite{Deisenroth2015}, assumes a factorised marginal likelihood into $M$ independent GPs, i.e.
+%\[
+%  p(\y | \X, \theta) \approx \prod_{m=1}^M p_m(\y_m | \X_m, \theta) \, ,
+%\]
+%with shared hyper-parameters $\theta$. Note that $\y_m = \{y_n : z_n = m\}$ and $\X_m = \{\xn : z_n = m\}$ where $\bm z = \{z_n\}_{n=1}^N$ are latent assignments of the training samples to the $M$ independent experts.
+%Such an approach however, results in a predictive posterior distribution which depends on all GPs.
+%In particular, in the PoE framework the function value of an unseen data point is estimated based on the product of all independent GPs resulting in straight forward computation of the mean and variance, i.e. the product of  Gaussians PDFs is again Gaussian.
+%The mean and variance are given by:
+%\begin{align}
+%  \mu\new &= \sigma\new^2 \sum_{m=1}^M \sigma_m^{-2}(\x\new) \mu_m(\x\new) \, , \\
+%  \sigma\new^{-2} &= \sum_{m=1}^M \sigma_m^{-2}(\x\new) \, .
+%\end{align}
+%which indicates one of the problems arising in PoE models, i.e. with increasing $M$ the predictive variance vanishes and the model is over-confident. 
+%Moreover, this approach estimates the function value of $\x\new$ based on all independent GPs, even those which are not trained on data which is in the vicinity of $\x\new$.
 %The advantage is that such an approach is that it is very easy to realize, as shown in Listing~\ref{lst:poe}, but on the other hand results in 'degenerated' GP.
+%
+%\subsection{Mixture of Experts}
+%An alternative approach to the PoE is the use of a mixture or better an infinite mixture such as in \cite{RasmussenG2001}.
+%This approach leads to a mixture model expression in which the mixture is called a gating network, i.e.
+%\[
+%  p(\y | \X, \theta) = \sum_{\bm z} \left[ \prod_{m=1}^M p(\y_m | \X_m, \theta_m) \right] p(\bm z | \X, \alpha) \,
+%\]
+%where $\alpha$ are hyper-parameters of the gating network and $\bm z =\{z_n\}_{n=1}^N$ is a configuration indicating the assignments of the data points to experts.
+%Note that hyper-parameters of the experts under such a model are not shared.
+%Further note that such an approach marginalizes over possible configurations, which naturally results in a Bayesian nonparametric formulation. 
+%We can find the assignment of an observation to an expert using Gibbs sampling from the posterior conditional $p(z_n = m | \cdot)$. Given training data points, hyper-parameters and configurations we can estimate the function value of an unseen observation as follows: (1) Estimate the indicator variable $z\new$, (2) estimate the function value solely based on the selected GP:
+%\begin{align}
+%  \mu\new &= \sum_{m=1}^M \indic{z\new = m} \mu_m(\x\new) \, , \\
+%  \sigma\new &= \sum_{m=1}^M \indic{z\new = m} \sigma_m(\x\new) \, .
+%\end{align}
+%As a consequence, predictions from this model are based on GPs which have been trained on the region of interest only.
+%For efficient learning this approach might be problematic as it requires to find an appropriate configuration or average over several configurations of the training data and the indicator $z\new$.
+%A possible solution for infinite mixtures might be an adaption of the approx. MAP inference approach for DP mixtures by \cite{Raykov2016} which could replace the MCMC step described in \cite{RasmussenG2001}.
+%
+%\subsection{SPN Mixture of Experts}
+%We can see that a SPN of GP experts follows directly from the work of \cite{RasmussenG2001} and the fact that we can interpret sum nodes (mixtures) as gating networks.
+%We can therefore write the resulting model as follows:
+%\begin{equation} \label{eq:spnGP}
+%  p(\y | \X, \theta) = \sum_{\z} \left[ \prod_{t=1}^{\tau} \prod_{\Leaf \in \SPT_{t}} p(\y_t | \X_{t,\scope(\Leaf)}, \theta_{\Leaf}) \right] p(\z | \X, \alpha)
+%\end{equation}
+%where $\y_t = \{y_n : z_n = t\}$ and $\X_t = \{\x_n : z_n = t\}$.
+%As we are interested in efficient learning in GPs, we will assume that the structure as well as a configuration $\z$ is drawn from the posterior using an oracle only once, e.g. variational inference, MAP or any other approximation which does not require sampling.
+%Therefore, we do not marginalize over the possible configurations anymore and learn the parameters of the GPs by minimize the negative log marginal likelihood for each GP expert at the leaves independently.
+%We get the conditional:
+%\[
+%  p(\y | \X, \z, \theta) = \prod_{t=1}^{\tau} \prod_{\Leaf \in \SPT_{t}} p(\y_t | \X_{t,\scope(\Leaf)}, \theta_{\Leaf})
+%\]
+%which can be efficiently optimized and evaluated.
+%However, this conditional of course does not reflect our uncertainty in $\z$ anymore.
+%This raises the following issues, (1) we might get a boundary bias, (2) we allow predictions only from a single GP trained over a potentially very small sub-set of training data which might lead to incorrect predictions.
+%A natural way of dealing with this issues would be to use MCMC instead and compute an expectation over posterior samples.
+%As SPNs can represent an exponentially large mixture, we can utilize this by recursively defining Eq.~\ref{eq:spnGP} using additional sum nodes in the network.
+%The resulting model is
+%\[
+%  p(\y | \X, \theta) \approx \sum_{k=1}^K w_k p(\y | \X, \z_k, \theta)
+%\]
+%where $K$ is exponentially large, due to the recursive structure of SPNs. Observations under such an model are drawn according to a mixture of Gaussians.
+%However, drawing samples from this posterior predictive distribution is difficult, i.e. in a common scheme we would draw a component according to the mixing proportions which will again lead to selecting a product of independent GPs learned over a small set of training data only. 
+%One possible solution to this would be to approximate the predictive posterior by a Gaussian distribution, i.e. compute the mixture mean and variance as follows: 
+%\begin{align}
+%  \mu(y\new) &= \sum_{k=1}^K w_k \mu_k(\x\new) \, , \\
+%  \sigma(\x\new) &= \sum_{k=1}^M w_k \sigma^2_k(\x\new) + \sum_{k=1}^K w_k (\mu_k(\x\new))^2 - \left(\sum_{k=1}^K w_k \mu_k(\x\new)\right)^2\ ,
+%\end{align}
+%which follows immediately from the fact that the i\ths moment is computed according to:
+%\[
+%  \E_{p}[\x^i] = \sum_{k=1}^K w_k \E_{p_k}[x^i] \, .
+%\]
+%In general approximating a mixture model, which can assumed to be multi-modal, with a single Gaussian is doubtful.
+%However, in this case we can justify the approximation by assuming that this mixture computes an estimate of the expectation of an infinite SPN of GP experts.
 
-\subsection{Mixture of Experts}
-An alternative approach to the PoE is the use of a mixture or better an infinite mixture such as in \cite{RasmussenG2001}.
-This approach leads to a mixture model expression in which the mixture is called a gating network, i.e.
+We will now turn to a combination of SPNs with GPs using recursive sub-devisions of the input space.
+Let us consider the case in which $D=1$ and $N>>1$.
+Further let the SPN consist of a single sum node as root, $M$ many product nodes as children each computing a product over $C$ many leaf nodes equipped with a GP as distribution.
+We therefore, get a SPN consisting of $C\cdot M$ GPs. The prior is therefore,
 \[
-  p(\y | \X, \theta) = \sum_{\bm z} \left[ \prod_{m=1}^M p(\y_m | \X_m, \theta_m) \right] p(\bm z | \X, \alpha) \,
+  p(\bm f | \X, \bm \theta) = \sum_{m=1}^M \prod_{c=1}^C \N(\bm f_c | \bm 0, \K(\theta_c)) \, ,
 \]
-where $\alpha$ are hyper-parameters of the gating network and $\bm z =\{z_n\}_{n=1}^N$ is a configuration indicating the assignments of the data points to experts.
-Note that hyper-parameters of the experts under such a model are not shared.
-Further note that such an approach marginalizes over possible configurations, which naturally results in a Bayesian nonparametric formulation. 
-We can find the assignment of an observation to an expert using Gibbs sampling from the posterior conditional $p(z_n = m | \cdot)$. Given training data points, hyper-parameters and configurations we can estimate the function value of an unseen observation as follows: (1) Estimate the indicator variable $z\new$, (2) estimate the function value solely based on the selected GP:
-\begin{align}
-  \mu\new &= \sum_{m=1}^M \indic{z\new = m} \mu_m(\x\new) \, , \\
-  \sigma\new &= \sum_{m=1}^M \indic{z\new = m} \sigma_m(\x\new) \, .
-\end{align}
-As a consequence, predictions from this model are based on GPs which have been trained on the region of interest only.
-For efficient learning this approach might be problematic as it requires to find an appropriate configuration or average over several configurations of the training data and the indicator $z\new$.
-A possible solution for infinite mixtures might be an adaption of the approx. MAP inference approach for DP mixtures by \cite{Raykov2016} which could replace the MCMC step described in \cite{RasmussenG2001}.
+where $\bm f = \{f_1, \dots, f_N\}$, $\bm f_c = {f}$ and $f_i = f(\x_i)$ as in standard GPs and $\bm \theta = \{\theta_1, \dots \theta_C\}$ are the kernel function parameters of the GPs.
 
-\subsection{SPN Mixture of Experts}
-We can see that a SPN of GP experts follows directly from the work of \cite{RasmussenG2001} and the fact that we can interpret sum nodes (mixtures) as gating networks.
-We can therefore write the resulting model as follows:
-\begin{equation} \label{eq:spnGP}
-  p(\y | \X, \theta) = \sum_{\z} \left[ \prod_{t=1}^{\tau} \prod_{\Leaf \in \SPT_{t}} p(\y_t | \X_{t,\scope(\Leaf)}, \theta_{\Leaf}) \right] p(\z | \X, \alpha)
-\end{equation}
-where $\y_t = \{y_n : z_n = t\}$ and $\X_t = \{\x_n : z_n = t\}$.
-As we are interested in efficient learning in GPs, we will assume that the structure as well as a configuration $\z$ is drawn from the posterior using an oracle only once, e.g. variational inference, MAP or any other approximation which does not require sampling.
-Therefore, we do not marginalize over the possible configurations anymore and learn the parameters of the GPs by minimize the negative log marginal likelihood for each GP expert at the leaves independently.
-We get the conditional:
+We will first consider the case for which the parameters are shared across the model, i.e. $\theta_c = \theta$.
+In this case we can obtain the optimal kernel function parameters by minimizing the negative marginal log likelihood of the model which can be obtained by (1) pushing the likelihood the leaf nodes, i.e.
 \[
-  p(\y | \X, \z, \theta) = \prod_{t=1}^{\tau} \prod_{\Leaf \in \SPT_{t}} p(\y_t | \X_{t,\scope(\Leaf)}, \theta_{\Leaf})
+  p(\y, \bm f | \X, \theta, \sigma) = \sum_{m=1}^M \prod_{c=1}^C \prod_{n \in \scope(c)} \N(y_n | \x_n, \sigma^2) \, \N(\bm f | \bm 0, \K(\theta)) \, ,
 \]
-which can be efficiently optimized and evaluated.
-However, this conditional of course does not reflect our uncertainty in $\z$ anymore.
-This raises the following issues, (1) we might get a boundary bias, (2) we allow predictions only from a single GP trained over a potentially very small sub-set of training data which might lead to incorrect predictions.
-A natural way of dealing with this issues would be to use MCMC instead and compute an expectation over posterior samples.
-As SPNs can represent an exponentially large mixture, we can utilize this by recursively defining Eq.~\ref{eq:spnGP} using additional sum nodes in the network.
-The resulting model is
-\[
-  p(\y | \X, \theta) \approx \sum_{k=1}^K w_k p(\y | \X, \z_k, \theta)
-\]
-where $K$ is exponentially large, due to the recursive structure of SPNs. Observations under such an model are drawn according to a mixture of Gaussians.
-However, drawing samples from this posterior predictive distribution is difficult, i.e. in a common scheme we would draw a component according to the mixing proportions which will again lead to selecting a product of independent GPs learned over a small set of training data only. 
-One possible solution to this would be to approximate the predictive posterior by a Gaussian distribution, i.e. compute the mixture mean and variance as follows: 
+and (2) integrating out the latent functions, i.e.
 \begin{align}
-  \mu(y\new) &= \sum_{k=1}^K w_k \mu_k(\x\new) \, , \\
-  \sigma(\x\new) &= \sum_{k=1}^M w_k \sigma^2_k(\x\new) + \sum_{k=1}^K w_k (\mu_k(\x\new))^2 - \left(\sum_{k=1}^K w_k \mu_k(\x\new)\right)^2\ ,
+  p(\y | \X, \theta, \sigma) &= \int_f \sum_{m=1}^M \prod_{c=1}^C \prod_{n \in \scope(c)} \N(y_n | \x_n, \sigma^2) \, \N(\bm f | \bm 0, \K(\theta)) df \, , \\
+  &= \sum_{m=1}^M \int_f \prod_{c=1}^C \prod_{n \in \scope(c)} \N(y_n | \x_n, \sigma^2) \, \N(\bm f | \bm 0, \K(\theta)) df \, , \\
 \end{align}
-which follows immediately from the fact that the i\ths moment is computed according to:
+
+Further we can push the likelihood towards the leaf nodes, resulting in
 \[
-  \E_{p}[\x^i] = \sum_{k=1}^K w_k \E_{p_k}[x^i] \, .
+  p(\y | \bm f, \bm \sigma) = \sum_{m=1}^M \prod_{c=1}^C \prod_{n \in N_c} \N(y_n | \x_n, \sigma^2_c)
 \]
-In general approximating a mixture model, which can assumed to be multi-modal, with a single Gaussian is doubtful.
-However, in this case we can justify the approximation by assuming that this mixture computes an estimate of the expectation of an infinite SPN of GP experts.
+where $\sigma^2_c \in \bm \sigma$ might be shared across the network.
+We will first consider the case for which the noise parameter as well as the kernel parameters are shared across the model, i.e. $\theta_c = \theta$ and $\sigma^2_c = \sigma^2$ for all GPs in the SPN.
+Doing so allows us to learn the parameters using minimization of the negative marginal log likelihood, i.e.
+\[
+  p(\y | \x_1, \dots, \x_N, \theta, \sigma)
+\]
 
 %\appendix
 %\section{Code Examples using GPFlow}
