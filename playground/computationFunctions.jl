@@ -54,8 +54,14 @@ end
 function dirty!(node::GPLeaf)
 end
 
+# results
+immutable struct SPNGPResult
+	means::Vector{Float64}
+	stds::Vector{Float64}
+	weights::Vector{Float64}
+end
 
-function spn_predict(node::GPLeaf, x, results::Dict{{})
+function spn_predict(node::GPLeaf, x::Vector, results::Dict{Int, SPNGPResult})
     return predict_y(node.gp, x)
 end
 
