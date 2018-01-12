@@ -77,7 +77,7 @@ function buildNodes(r::SumRegion, nodes::Dict, rootRegion::SumRegion)
                     add!(node, child)
                 end
 
-                fill!(node.prior_weights, 1. / length(node)) # use Dirichlet instead ?
+                node.prior_weights[:] = rand(Dirichlet(ones(length(node)))) # use Dirichlet instead ?
                 fill!(node.posterior_weights, 1. / length(node))
                 
                 @assert length(node) == length(node.posterior_weights)

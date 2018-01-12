@@ -55,54 +55,92 @@ function dirty!(node::GPLeaf)
 end
 
 # results
-immutable struct SPNGPResult
-	means::Vector{Float64}
-	stds::Vector{Float64}
-	weights::Vector{Float64}
+struct SPNGPResult
+    mean::Float64
+    meansqr::Float64
+    stdsqr::Float64
 end
 
-function spn_predict(node::GPLeaf, x::Vector, results::Dict{Int, SPNGPResult})
-    return predict_y(node.gp, x)
-end
-
-function spn_predict(node::FiniteSplitNode, x)
-    
-    s = x .<= node.split
-    
-    μ = zeros(length(x))
-    σ2 = zeros(length(x))
-    
-    pred1 = spn_predict(children(node)[1], x[s])
-    pred2 = spn_predict(children(node)[2], x[.!s])
-    
-    μ[s] = pred1[1]
-    μ[.!s] = pred2[1]
-    
-    σ2[s] = pred1[2]
-    σ2[.!s] = pred2[2]
-    
-    return (μ, σ2)
-end
-
-function spn_predict(node::GPSumNode, x)
-    childPredictions = [spn_predict(child, x) for child in children(node)]
-    
-    μs = [pred[1] for pred in childPredictions]
-    σ2s = [pred[2] for pred in childPredictions]
-    
-    μ = zeros(length(x))
-    σ2 = zeros(length(x))
-    
-    for k in 1:length(node)
-       μ += μs[k] .* node.posterior_weights[k]
-       σ2 += σ2s[k] .* node.posterior_weights[k]
-       σ2 += μs[k].^2 .* node.posterior_weights[k]
+function spn_predictIndep(node::GPLeaf, x::Float64, results::Dict{Int, SPNGPResult})
+    if !haskey(results, node.id)
+        μ, σ = predict_y(node.gp, [x])
+        r = SPNGPResult(μ[1], μ[1]^2, σ[1].^2)
+        results[node.id] = r
     end
-    
-    σ2 .-= μ.^2
-    
-    return (μ, σ2)
 end
+
+function spn_predictIndep(node::FiniteSplitNode, x::Float64, results::Dict{Int, SPNGPResult})
+    if !haskey(results, node.id)
+        
+        ci = (x <= node.split[1]) ? 1 : 2
+        
+        spn_predictIndep(children(node)[ci], x, results)
+        results[node.id] = results[children(node)[ci].id]
+    end
+end
+
+function spn_predictIndep(node::GPSumNode, x::Float64, results::Dict{Int, SPNGPResult})
+    
+    if !haskey(results, node.id)
+        
+        μ = 0.0
+        μ2 = 0.0
+        σ2 = 0.0
+        
+        w = node.posterior_weights
+        
+        for (ci, child) in enumerate(children(node))
+            spn_predictIndep(child, x, results)
+            r = results[child.id]
+            μ += w[ci] * r.mean
+            μ2 += w[ci] * r.meansqr
+            σ2 += w[ci] * r.stdsqr
+            #push!(σs, r.stds...)
+            #push!(ws, logw[ci] + r.logweights...)
+        end
+        
+        results[node.id] = SPNGPResult(μ, μ2, σ2)
+    end
+end
+
+#function spn_predict(node::FiniteSplitNode, x::Vector, results::Dict{Int, SPNGPResult})
+#    
+#    s = x .<= node.split
+#    
+#    μ = zeros(length(x))
+#    σ2 = zeros(length(x))
+#    
+#    pred1 = spn_predict(children(node)[1], x[s])
+#    pred2 = spn_predict(children(node)[2], x[.!s])
+#    
+#    μ[s] = pred1[1]
+#    μ[.!s] = pred2[1]
+#    
+#    σ2[s] = pred1[2]
+#    σ2[.!s] = pred2[2]
+#    
+#    return (μ, σ2)
+#end
+
+#function spn_predict(node::GPSumNode, x)
+#    childPredictions = [spn_predict(child, x) for child in children(node)]
+#    
+#    μs = [pred[1] for pred in childPredictions]
+#    σ2s = [pred[2] for pred in childPredictions]
+#    
+#    μ = zeros(length(x))
+#    σ2 = zeros(length(x))
+#    
+#    for k in 1:length(node)
+#       μ += μs[k] .* node.posterior_weights[k]
+#       σ2 += σ2s[k] .* node.posterior_weights[k]
+#       σ2 += μs[k].^2 .* node.posterior_weights[k]
+#    end
+#    
+#    σ2 .-= μ.^2
+#    
+#    return (μ, σ2)
+#end
 
 function spn_rand(node::GPLeaf, x)
     return rand(node.gp, x)
