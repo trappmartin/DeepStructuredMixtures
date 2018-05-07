@@ -1,47 +1,53 @@
-function convertToSPN(rootRegion::SumRegion, gpRegions, X, y, meanFunction, kernelFunction, noise; sampleNoise = false)
+function convertToSPN(rootRegion::SumRegion, gpRegions, X, y, meanFunction, kernelFunctions::Vector, noise; sampleNoise = false, overlap = 2)
     
     nodes = Dict{Int, Vector{SPNNode}}()
     
     
     for r in gpRegions
     
-        s = (X .> r.min) .& (X .<= r.max)
+        s = (X .> r.min - overlap) .& (X .<= r.max + overlap)
         xx = X[s]
         yy = y[s]
 
-        # build start GP
-        gp = GP(reshape(xx, 1, length(xx)), yy, meanFunction, kernelFunction, noise)
-
+        # build GPs
+        #gps = map(kernel_function -> GP(reshape(xx, 1, length(xx)), yy, meanFunction, kernel_function, noise), kernelFunctions)
+        
         # start mcmc
-        chain = if sampleNoise
-            mcmc(gp, burnin = 100, nIter = 1100)
-        else
-            mcmcKernel(gp, burnin = 100, nIter = 1100)
-        end
+        #chain = if sampleNoise
+        #    mcmc(gp, burnin = 100, nIter = 1100)
+        #else
+        #    mcmcKernel(gp, burnin = 100, nIter = 1100)
+        #end
 
         # get samples (random)
-        samples = rand(1:1000, numGPs)
-        while length(unique(samples)) != numGPs
-            samples = rand(1:1000, numGPs)
-        end
+        #samples = rand(1:1000, numGPs)
+        #while length(unique(samples)) != numGPs
+        #    samples = rand(1:1000, numGPs)
+        #end
 
         # construct GPs
-        gps = []
-        for sample in samples
+        gp_nodes = []
+        # for sample in samples
+        for kernel_function in kernelFunctions
             
-            ns = if sampleNoise
-                chain[3,sample]
-            else
-                noise
-            end
+            #ns = if sampleNoise
+            #    chain[3,sample]
+            #else
+            #    noise
+            #end
+            
+            #GP(reshape(xx, 1, length(xx)), yy, MeanZero(), SE(chain[1,sample],chain[2,sample]), ns)
             
             node = GPLeaf{Any}(nextID(), 
-                GP(reshape(xx, 1, length(xx)), yy, MeanZero(), SE(chain[1,sample],chain[2,sample]), ns))
+                GP(reshape(xx, 1, length(xx)), yy, meanFunction, kernel_function, noise)
+                )
+            node.gp = GaussianProcesses.fit!(node.gp, reshape(xx, 1, length(xx)), yy)
+            #GaussianProcesses.optimize!(node.gp)
             node.parents = SPNNode[]
-            push!(gps, node)
+            push!(gp_nodes, node)
         end
 
-        nodes[RegionIDs[r]] = gps
+        nodes[RegionIDs[r]] = gp_nodes
     end
     
     return buildNodes(rootRegion, nodes, rootRegion)[1]

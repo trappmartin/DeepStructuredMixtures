@@ -8,7 +8,7 @@ end
 
 function spn_likelihood(node::GPSumNode)
     logw = log.(node.prior_weights)
-    return logsumexp(logw + [spn_likelihood(child) for child in children(node)])
+    return StatsFuns.logsumexp(logw + [spn_likelihood(child) for child in children(node)])
 end
 
 function spn_update!(node::GPLeaf)
@@ -24,7 +24,7 @@ function spn_update!(node::GPSumNode)
     if node.zDirty
         logw_prior = log.(node.prior_weights)
         logw_posterior = logw_prior + [spn_update!(child) for child in children(node)]
-        node.Z = logsumexp(logw_posterior)
+        node.Z = StatsFuns.logsumexp(logw_posterior)
         node.posterior_weights[:] = exp.(logw_posterior - node.Z)
         node.zDirty = false
     end
@@ -61,6 +61,37 @@ struct SPNGPResult
     stdsqr::Float64
 end
 
+function spn_logdensityIndep(node::GPLeaf, x::Float64, y::Float64, results::Dict{Int, Float64})
+    if !haskey(results, node.id)
+        μ, σ = predict_y(node.gp, [x])
+        results[node.id] = logpdf(Normal(μ[1], σ[1]), y)
+    end
+end
+
+function spn_logdensityIndep(node::FiniteSplitNode, x::Float64, y::Float64, results::Dict{Int, Float64})
+    if !haskey(results, node.id)
+        
+        ci = (x <= node.split[1]) ? 1 : 2 
+        spn_logdensityIndep(children(node)[ci], x, y, results)
+        results[node.id] = results[children(node)[ci].id]
+        #results[node.id] = SPNGPResult(μ, μ, σ2)
+    end
+end
+
+function spn_logdensityIndep(node::GPSumNode, x::Float64, y::Float64, results::Dict{Int, Float64})
+    if !haskey(results, node.id)
+        
+        logw = log.(node.posterior_weights)
+        logp = ones(length(node))
+        for (ci, child) in enumerate(children(node))
+            spn_logdensityIndep(child, x, y, results)
+            logp[ci] = results[child.id]
+        end     
+        
+        results[node.id] = StatsFuns.logsumexp(logw + logp)
+    end
+end
+
 function spn_predictIndep(node::GPLeaf, x::Float64, results::Dict{Int, SPNGPResult})
     if !haskey(results, node.id)
         μ, σ = predict_y(node.gp, [x])
@@ -74,13 +105,27 @@ function spn_predictIndep(node::FiniteSplitNode, x::Float64, results::Dict{Int, 
         
         ci = (x <= node.split[1]) ? 1 : 2
         
+        μ = 0.0
+        σ2 = 0.0
+                
+        for child in children(node)
+            spn_predictIndep(child, x, results)
+            r = results[child.id]
+            
+            σ2 += 1./r.stdsqr
+            μ += r.mean/r.stdsqr
+        end
+        
+        σ2 = 1./σ2
+        μ *= σ2
+        
         spn_predictIndep(children(node)[ci], x, results)
         results[node.id] = results[children(node)[ci].id]
+        #results[node.id] = SPNGPResult(μ, μ, σ2)
     end
 end
 
 function spn_predictIndep(node::GPSumNode, x::Float64, results::Dict{Int, SPNGPResult})
-    
     if !haskey(results, node.id)
         
         μ = 0.0
@@ -93,54 +138,76 @@ function spn_predictIndep(node::GPSumNode, x::Float64, results::Dict{Int, SPNGPR
             spn_predictIndep(child, x, results)
             r = results[child.id]
             μ += w[ci] * r.mean
-            μ2 += w[ci] * r.meansqr
+            
+            μ2 += w[ci] * r.mean^2
             σ2 += w[ci] * r.stdsqr
-            #push!(σs, r.stds...)
-            #push!(ws, logw[ci] + r.logweights...)
-        end
+        end     
         
-        results[node.id] = SPNGPResult(μ, μ2, σ2)
+        σ2 = σ2 + μ2 - μ^2
+        
+        results[node.id] = SPNGPResult(μ, μ, σ2)
     end
 end
 
-#function spn_predict(node::FiniteSplitNode, x::Vector, results::Dict{Int, SPNGPResult})
-#    
-#    s = x .<= node.split
-#    
-#    μ = zeros(length(x))
-#    σ2 = zeros(length(x))
-#    
-#    pred1 = spn_predict(children(node)[1], x[s])
-#    pred2 = spn_predict(children(node)[2], x[.!s])
-#    
-#    μ[s] = pred1[1]
-#    μ[.!s] = pred2[1]
-#    
-#    σ2[s] = pred1[2]
-#    σ2[.!s] = pred2[2]
-#    
-#    return (μ, σ2)
-#end
+function spn_predict_moment(node::GPLeaf, x::Vector, obs::Vector, results::Dict{Int, Dict{Int, SPNGPResult}})
+    if !haskey(results, node.id)
+        μ, σ = predict_y(node.gp, x)
+        
+        r = Dict(obs[i] => SPNGPResult(μ[i], μ[i]^2, σ[i].^2) for i in 1:length(obs))
+        results[node.id] = r
+    end
+end
 
-#function spn_predict(node::GPSumNode, x)
-#    childPredictions = [spn_predict(child, x) for child in children(node)]
-#    
-#    μs = [pred[1] for pred in childPredictions]
-#    σ2s = [pred[2] for pred in childPredictions]
-#    
-#    μ = zeros(length(x))
-#    σ2 = zeros(length(x))
-#    
-#    for k in 1:length(node)
-#       μ += μs[k] .* node.posterior_weights[k]
-#       σ2 += σ2s[k] .* node.posterior_weights[k]
-#       σ2 += μs[k].^2 .* node.posterior_weights[k]
-#    end
-#    
-#    σ2 .-= μ.^2
-#    
-#    return (μ, σ2)
-#end
+function spn_predict_moment(node::FiniteSplitNode, x::Vector, obs::Vector, results::Dict{Int, Dict{Int, SPNGPResult}})
+    if !haskey(results, node.id)
+        
+        c = (x .<= node.split[1])
+        
+        spn_predict_moment(children(node)[1], x[c], obs[c], results)
+        spn_predict_moment(children(node)[2], x[!c], obs[!c], results)
+        
+        r = Dict{Int, SPNGPResult}()
+        for i in 1:length(obs)
+            if c[i]
+                r[obs[i]] = results[children(node)[1].id][obs[i]]
+            else
+                r[obs[i]] = results[children(node)[2].id][obs[i]]
+            end
+        end
+        
+        results[node.id] = r
+    end
+end
+
+function spn_predict_moment(node::GPSumNode, x, obs::Vector, results::Dict{Int, Dict{Int, SPNGPResult}})
+    
+    if !haskey(results, node.id)
+        
+        for child in children(node)
+            spn_predict_moment(child, x, obs, results)
+        end
+        
+        μ = zeros(length(x))
+        μ2 = zeros(length(x))
+        σ2 = zeros(length(x))
+        
+        w = node.posterior_weights
+        
+        for k in 1:length(node)
+            
+            μsk = [results[children(node)[k].id][xi].mean for xi in obs]
+            σ2sk = [results[children(node)[k].id][xi].stdsqr for xi in obs]
+            
+            μ += μsk .* w[k]
+            σ2 += σ2sk .* w[k]
+            σ2 += μsk.^2 .* w[k]
+        end
+        
+        σ2 .-= μ.^2
+        
+        results[node.id] = Dict(obs[i] => SPNGPResult(μ[i], μ[i]^2, σ2[i]) for i in 1:length(obs))
+    end
+end
 
 function spn_rand(node::GPLeaf, x)
     return rand(node.gp, x)
@@ -197,7 +264,7 @@ end
 function spn_posterior(node::GPSumNode)
     if node.posteriorDirty
         logw = log.(node.posterior_weights)
-        node.posterior = logsumexp(logw + [spn_posterior(child) for child in children(node)])
+        node.posterior = StatsFuns.logsumexp(logw + [spn_posterior(child) for child in children(node)])
         node.posteriorDirty = false
     end
     return node.posterior

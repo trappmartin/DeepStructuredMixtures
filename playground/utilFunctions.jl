@@ -6,7 +6,7 @@ end
 
 function getAllSplits(spn)
 
-    splitNodes = filter(n -> isa(n, FiniteSplitNode), SumProductNetworks.order(spn))
+    splitNodes = filter(n -> isa(n, FiniteSplitNode), SumProductNetworks.getOrderedNodes(spn))
     allSplits = Dict{Int, Vector{Vector{Float64}}}()
 
     for splitNode in splitNodes
@@ -23,7 +23,7 @@ end
 
 function getSplits(spn, minDepth)
 
-    splitNodes = filter(n -> isa(n, FiniteSplitNode), SumProductNetworks.order(spn))
+    splitNodes = filter(n -> isa(n, FiniteSplitNode), SumProductNetworks.getOrderedNodes(spn))
     allSplits = Dict{Int, Vector{Vector{Float64}}}()
 
     for splitNode in splitNodes
