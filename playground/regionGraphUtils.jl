@@ -5,7 +5,7 @@ function convertToSPN(rootRegion::SumRegion, gpRegions, X, y, meanFunction, kern
     
     for r in gpRegions
     
-        s = (X .> r.min - overlap) .& (X .<= r.max + overlap)
+        s = (X .> (r.min - overlap)) .& (X .<= (r.max + overlap))
         xx = X[s]
         yy = y[s]
 
@@ -39,10 +39,11 @@ function convertToSPN(rootRegion::SumRegion, gpRegions, X, y, meanFunction, kern
             #GP(reshape(xx, 1, length(xx)), yy, MeanZero(), SE(chain[1,sample],chain[2,sample]), ns)
             
             node = GPLeaf{Any}(nextID(), 
-                GP(reshape(xx, 1, length(xx)), yy, meanFunction, kernel_function, noise)
+                GP(reshape(xx, 1, length(xx)), yy, deepcopy(meanFunction), deepcopy(kernel_function), deepcopy(noise))
                 )
             node.gp = GaussianProcesses.fit!(node.gp, reshape(xx, 1, length(xx)), yy)
-            #GaussianProcesses.optimize!(node.gp)
+            #GaussianProcesses.optimize!(node.gp, mean=false, kern=true, noise=false, lik=false)
+            #node.gp = GaussianProcesses.fit!(node.gp, reshape(xx, 1, length(xx)), yy)
             node.parents = SPNNode[]
             push!(gp_nodes, node)
         end

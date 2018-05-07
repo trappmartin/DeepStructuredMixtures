@@ -54,13 +54,6 @@ end
 function dirty!(node::GPLeaf)
 end
 
-# results
-struct SPNGPResult
-    mean::Float64
-    meansqr::Float64
-    stdsqr::Float64
-end
-
 function spn_logdensityIndep(node::GPLeaf, x::Float64, y::Float64, results::Dict{Int, Float64})
     if !haskey(results, node.id)
         μ, σ = predict_y(node.gp, [x])
@@ -90,6 +83,13 @@ function spn_logdensityIndep(node::GPSumNode, x::Float64, y::Float64, results::D
         
         results[node.id] = StatsFuns.logsumexp(logw + logp)
     end
+end
+
+# results
+struct SPNGPResult
+    mean::Float64
+    meansqr::Float64
+    stdsqr::Float64
 end
 
 function spn_predictIndep(node::GPLeaf, x::Float64, results::Dict{Int, SPNGPResult})
@@ -206,6 +206,85 @@ function spn_predict_moment(node::GPSumNode, x, obs::Vector, results::Dict{Int, 
         σ2 .-= μ.^2
         
         results[node.id] = Dict(obs[i] => SPNGPResult(μ[i], μ[i]^2, σ2[i]) for i in 1:length(obs))
+    end
+end
+
+# results
+mutable struct SPNGParamResult
+    loglength::Float64
+    haslength::Bool
+    logsigma::Float64
+    hassigma::Bool
+end
+
+function spn_wavelength(node::GPLeaf, x::Float64, r::Dict{Int, SPNGParamResult})
+    if !haskey(r, node.id)
+        
+        pnames = get_param_names(node.gp.k)
+        rparam = SPNGParamResult(0.,false, 0., false)
+        
+        if length(pnames) == 2
+            rparam.loglength = get_params(node.gp.k)[findfirst(pnames .== :ll)]
+            rparam.haslength = true
+            rparam.logsigma = get_params(node.gp.k)[findfirst(pnames .== :lσ)]
+            rparam.hassigma = true
+        else
+            rparam.logsigma = get_params(node.gp.k)[findfirst(pnames .== :ll)]
+            rparam.hassigma = true
+        #if :ll in pnames
+        #    rparam.loglength = get_params(node.gp.k)[findfirst(pnames .== :ll)]
+        #    rparam.haslength = true
+        #end
+        #if :lσ in pnames
+        #    rparam.logsigma = get_params(node.gp.k)[findfirst(pnames .== :lσ)]
+        #    rparam.hassigma = true
+        end
+        
+        r[node.id] = rparam
+    end        
+end
+
+function spn_wavelength(node::FiniteSplitNode, x::Float64, r::Dict{Int, SPNGParamResult})
+    if !haskey(r, node.id)
+        ci = (x <= node.split[1]) ? 1 : 2
+        spn_wavelength(children(node)[ci], x, r)
+        r[node.id] = r[children(node)[ci].id]
+    end
+end
+
+function spn_wavelength(node::GPSumNode, x::Float64, r::Dict{Int, SPNGParamResult})
+    
+    if !haskey(r, node.id)
+        for child in children(node)
+            spn_wavelength(child, x, r)
+        end
+
+        logw = log.(node.posterior_weights)
+
+        rparam = SPNGParamResult(0.,false, 0., false)
+        lengths = map(child -> r[child.id].loglength, children(node))
+        haslengths = map(child -> r[child.id].haslength, children(node))
+        sigmas = map(child -> r[child.id].logsigma, children(node))
+        hassigmas = map(child -> r[child.id].hassigma, children(node))
+
+        length = if any(haslengths)
+            StatsFuns.logsumexp(lengths[haslengths] + logw[haslengths])
+        else
+            0
+        end
+
+        sigma = if any(hassigmas)
+            StatsFuns.logsumexp(sigmas[hassigmas] + logw[hassigmas])
+        else
+            0
+        end
+
+        rparam.loglength = length
+        rparam.haslength = any(haslengths)
+        rparam.logsigma = sigma
+        rparam.hassigma = any(hassigmas)
+
+        r[node.id] = rparam
     end
 end
 
