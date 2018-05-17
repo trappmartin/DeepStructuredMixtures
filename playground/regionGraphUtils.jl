@@ -74,7 +74,8 @@ function convertToSPN_ND(rootRegion::NDSumRegion, gpRegions, RegionIDs, Partitio
     return buildNodes(rootRegion, RegionIDs, PartitionIDS, nodes, rootRegion)[1]
 end
 
-@everywhere function buildNodes(r::NDSumRegion, RegionIDs, PartitionIDS, nodes::Dict, rootRegion::NDSumRegion)
+function buildNodes(r::NDSumRegion, RegionIDs, PartitionIDS, nodes::Dict, rootRegion::NDSumRegion)
+    @assert haskey(RegionIDs, r)
     if !haskey(nodes, RegionIDs[r])
         
         childrn = reduce(vcat, map(p -> buildNodes(p, RegionIDs, PartitionIDS, nodes, rootRegion), r.partitions))
@@ -118,7 +119,7 @@ end
     return nodes[RegionIDs[r]]
 end
 
-@everywhere function buildNodes(p::NDSplitPartition, RegionIDs, PartitionIDS, nodes::Dict, rootRegion::NDSumRegion)
+function buildNodes(p::NDSplitPartition, RegionIDs, PartitionIDS, nodes::Dict, rootRegion::NDSumRegion)
 
     childrn = map(r -> buildNodes(r, RegionIDs, PartitionIDS, nodes, rootRegion), p.regions)
     
@@ -146,11 +147,13 @@ end
     fill!(node.posterior_weights, 1. / length(node))
     push!(n, node)
     
+    @assert haskey(PartitionIDS, p)
     nodes[PartitionIDS[p]] = [node]
     return nodes[PartitionIDS[p]]
 end
 
-@everywhere function buildNodes(r::NDGPRegion, RegionIDs, PartitionIDS, nodes::Dict, rootRegion::NDSumRegion)
+function buildNodes(r::NDGPRegion, RegionIDs, PartitionIDS, nodes::Dict, rootRegion::NDSumRegion)
+    @assert haskey(RegionIDs, r)
     return nodes[RegionIDs[r]]
 end
     

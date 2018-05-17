@@ -127,10 +127,10 @@ end
     max::Vector{Float64}
 end
 
-Base.:(==)(x::NDSumRegion, y::NDSumRegion) = all((x.min .≈ y.min) .& (x.max .≈ y.max))
-Base.:(==)(x::NDGPRegion, y::NDGPRegion) = all((x.min .≈ y.min) .& (x.max .≈ y.max))
-Base.:(==)(x::NDSumRegion, y::NDGPRegion) = all((x.min .≈ y.min) .& (x.max .≈ y.max))
-Base.:(==)(x::NDGPRegion, y::NDSumRegion) = all((x.min .≈ y.min) .& (x.max .≈ y.max))
+Base.:(==)(x::NDSumRegion, y::NDSumRegion) = all((x.min .== y.min) .& (x.max .== y.max))
+Base.:(==)(x::NDGPRegion, y::NDGPRegion) = all((x.min .== y.min) .& (x.max .== y.max))
+Base.:(==)(x::NDSumRegion, y::NDGPRegion) = all((x.min .== y.min) .& (x.max .== y.max))
+Base.:(==)(x::NDGPRegion, y::NDSumRegion) = all((x.min .== y.min) .& (x.max .== y.max))
 
 function poonDomingos_ND(δ::Vector, minX::Vector, maxX::Vector, maxDepth::Int, minSamples::Int, X)
         
@@ -167,7 +167,12 @@ function poonDomingos_ND(δ::Vector, minX::Vector, maxX::Vector, maxDepth::Int, 
         c = 0
         while isempty(splits)
             
-            d = rand(1:D)
+            d = if haskey(selectedDimensions, regionDepth[r])
+                selectedDimensions[regionDepth[r]]
+            else
+                # draw a dimension at random
+                rand(1:D)
+            end
         
             # get partitions on the x-axis
             splits = if (r.max[d] - r.min[d]) > δ[d]
@@ -186,7 +191,7 @@ function poonDomingos_ND(δ::Vector, minX::Vector, maxX::Vector, maxDepth::Int, 
             end
             c += 1
             
-            @assert c < 500 "$(r.max .- r.min) -> $(δ), depth: $(regionDepth[r]), $((r.max[d] - r.min[d]) > δ[d])"
+            @assert c < 500 "$(r.max .- r.min) -> $(δ), depth: $(regionDepth[r]), $((r.max[d] - r.min[d]) > δ[d]), d: $(d), $(length(processed))"
         end
         
         # create partitions and new regions
@@ -209,7 +214,7 @@ function poonDomingos_ND(δ::Vector, minX::Vector, maxX::Vector, maxDepth::Int, 
             end
             
             if isa(region1, NDGPRegion)
-                println("Samples: ", s)
+                println("Samples in expert: ", s)
             end
             
             create_sum_region = (r.max .- r.min) .> δ
@@ -230,7 +235,7 @@ function poonDomingos_ND(δ::Vector, minX::Vector, maxX::Vector, maxDepth::Int, 
             
                         
             if isa(region2, NDGPRegion)
-                println("Samples: ", s)
+                println("Samples in expert: ", s)
             end
                         
             if !depth_not_exceeded
@@ -239,7 +244,7 @@ function poonDomingos_ND(δ::Vector, minX::Vector, maxX::Vector, maxDepth::Int, 
             end
             
             r1 = if !(region1 in processed)
-                if isa(region1, NDSumRegion) & depth_not_exceeded
+                if isa(region1, NDSumRegion)
                     push!(toProcess, region1)
                 end
                 push!(processed, region1)
@@ -249,7 +254,7 @@ function poonDomingos_ND(δ::Vector, minX::Vector, maxX::Vector, maxDepth::Int, 
             end
 
             r2 = if !(region2 in processed)
-                if isa(region2, NDSumRegion) & depth_not_exceeded
+                if isa(region2, NDSumRegion)
                     push!(toProcess, region2)
                 end
                 push!(processed, region2)
@@ -258,15 +263,17 @@ function poonDomingos_ND(δ::Vector, minX::Vector, maxX::Vector, maxDepth::Int, 
                 processed[findfirst(region2 .== processed)]
             end
             
-            if (rmax[d] - r.min[d]) == δ
+            if (rmax[d] - r.min[d]) <= 2.5*δ[d]
                 regionDepth[r1] = regionDepth[r] + 1
             else
+                println("remaining size: ", (r.max[d] - rmin[d]), " > ", δ[d])
                 regionDepth[r1] = regionDepth[r]
             end
             
-            if (r.max[d] - rmin[d]) == δ
+            if (r.max[d] - rmin[d]) <= 2.5*δ[d]
                 regionDepth[r2] = regionDepth[r] + 1
             else
+                println("remaining size: ", (r.max[d] - rmin[d]), " > ", δ[d])
                 regionDepth[r2] = regionDepth[r]
             end
             
