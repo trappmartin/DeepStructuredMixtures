@@ -149,6 +149,59 @@ function spn_predictIndep(node::GPSumNode, x::Float64, results::Dict{Int, SPNGPR
     end
 end
 
+function spn_predict_ND(node::GPLeaf, X::Matrix, results::Dict{Int, Vector{Float64}})
+    if !haskey(results, node.id)
+        μ, σ = predict_y(node.gp, X')
+        results[node.id] = μ
+    end
+end
+
+function spn_predict_ND(node::GPLeaf, X::Vector, results::Dict{Int, Vector{Float64}})
+    if !haskey(results, node.id)
+        μ, σ = predict_y(node.gp, reshape(X, 1, length(X)))
+        results[node.id] = μ
+    end
+end
+
+function spn_predict_ND(node::FiniteSplitNode, x::Matrix, results::Dict{Int, Vector{Float64}})
+    
+    if !haskey(results, node.id)
+
+        d = findfirst(.!isinf.(node.split))
+        s = x[:,d] .<= node.split[d]
+
+        μ = ones(size(x, 1)) * -Inf
+        
+        if !haskey(results, children(node)[1].id)
+            spn_predict_ND(children(node)[1], x[s,:], results)
+        end
+        if !haskey(results, children(node)[2].id)
+            spn_predict_ND(children(node)[2], x[.!s,:], results)
+        end
+
+        μ[s] = results[children(node)[1].id]
+        μ[.!s] = results[children(node)[2].id]
+
+        results[node.id] = μ
+        
+    end
+end
+
+function spn_predict_ND(node::GPSumNode, x::Matrix, results::Dict{Int, Vector{Float64}})
+    
+    if !haskey(results, node.id)
+        μ = ones(size(x, 1))
+        for (ci, child) in enumerate(children(node))
+            if !haskey(results, child.id)
+                spn_predict_ND(child, x, results)
+            end
+            μ .+= node.posterior_weights[ci] * results[child.id]
+        end
+        results[node.id] = μ
+    end
+end
+
+
 function spn_predict_moment(node::GPLeaf, x::Vector, obs::Vector, results::Dict{Int, Dict{Int, SPNGPResult}})
     if !haskey(results, node.id)
         μ, σ = predict_y(node.gp, x)
@@ -215,13 +268,14 @@ mutable struct SPNGParamResult
     haslength::Bool
     logsigma::Float64
     hassigma::Bool
+    lognoise::Float64
 end
 
 function spn_wavelength(node::GPLeaf, x::Float64, r::Dict{Int, SPNGParamResult})
     if !haskey(r, node.id)
         
         pnames = get_param_names(node.gp.k)
-        rparam = SPNGParamResult(0.,false, 0., false)
+        rparam = SPNGParamResult(0.,false, 0., false, 0.)
         
         if length(pnames) == 2
             rparam.loglength = get_params(node.gp.k)[findfirst(pnames .== :ll)]
@@ -231,14 +285,9 @@ function spn_wavelength(node::GPLeaf, x::Float64, r::Dict{Int, SPNGParamResult})
         else
             rparam.logsigma = get_params(node.gp.k)[findfirst(pnames .== :ll)]
             rparam.hassigma = true
-        #if :ll in pnames
-        #    rparam.loglength = get_params(node.gp.k)[findfirst(pnames .== :ll)]
-        #    rparam.haslength = true
-        #end
-        #if :lσ in pnames
-        #    rparam.logsigma = get_params(node.gp.k)[findfirst(pnames .== :lσ)]
-        #    rparam.hassigma = true
         end
+        
+        rparam.lognoise = node.gp.logNoise
         
         r[node.id] = rparam
     end        
@@ -261,11 +310,12 @@ function spn_wavelength(node::GPSumNode, x::Float64, r::Dict{Int, SPNGParamResul
 
         logw = log.(node.posterior_weights)
 
-        rparam = SPNGParamResult(0.,false, 0., false)
+        rparam = SPNGParamResult(0.,false, 0., false, 0.)
         lengths = map(child -> r[child.id].loglength, children(node))
         haslengths = map(child -> r[child.id].haslength, children(node))
         sigmas = map(child -> r[child.id].logsigma, children(node))
         hassigmas = map(child -> r[child.id].hassigma, children(node))
+        noises = map(child -> r[child.id].lognoise, children(node))
 
         length = if any(haslengths)
             StatsFuns.logsumexp(lengths[haslengths] + logw[haslengths])
@@ -278,11 +328,14 @@ function spn_wavelength(node::GPSumNode, x::Float64, r::Dict{Int, SPNGParamResul
         else
             0
         end
+        
+        noise = StatsFuns.logsumexp(noises + logw)
 
         rparam.loglength = length
         rparam.haslength = any(haslengths)
         rparam.logsigma = sigma
         rparam.hassigma = any(hassigmas)
+        rparam.lognoise = noise
 
         r[node.id] = rparam
     end
@@ -348,3 +401,78 @@ function spn_posterior(node::GPSumNode)
     end
     return node.posterior
 end
+
+
+# helper functions
+function spn_predict(root, x::Vector)
+    μ = zeros(length(x))
+    σ = zeros(length(x))
+    
+    for (xi, xx) in enumerate(x)
+        #println(xi)
+        r = Dict{Int, SPNGPResult}()
+        spn_predictIndep(root, xx, r)
+        μi = r[root.id].mean
+        #μ2i = r[root.id].meansqr
+        σ2i = r[root.id].stdsqr
+                
+        μ[xi] = μi
+        σ[xi] = σ2i #sqrt(σ2i + μ2i - μi^2)
+    end
+    
+    return (μ, sqrt.(σ))
+    
+    #r = Dict{Int, Dict{Int, SPNGPResult}}()
+    #spn_predict_moment(root, x, collect(1:length(x)), r)
+    
+    #return (r[root.id].mean, r[root.id].stdsqr)
+end
+
+
+function spn_density(root, x, y)
+    r = Dict{Int, Float64}()
+    spn_logdensityIndep(root, x, y, r)
+    
+    return exp(r[root.id])
+end
+
+
+function predict_spn!(node::GPLeaf, X_::Matrix, results::Matrix)
+    s = X_ .> node.minx'
+    s .&= X_ .<= node.maxx'
+
+    s = vec(all(s, 2));
+    μ, σ = predict_y(node.gp, X_[s,:]')
+    
+    results[:,node.id] = 0.
+    results[s,node.id] = μ
+end
+
+function predict_spn!(node::FiniteSplitNode, X_::Matrix, results::Matrix)
+    
+    cids = map(child -> child.id, node.children)
+    
+    results[:,node.id] = sum(results[:,cids], 2)
+end
+
+function predict_spn!(node::GPSumNode, X_::Matrix, results::Matrix)
+    
+    cids = map(child -> child.id, node.children)
+    
+    results[:,node.id] = results[:,cids] * node.posterior_weights
+end
+
+function predict_spn!(root_::GPSumNode, X_::Matrix)
+    
+    nodes = SumProductNetworks.getOrderedNodes(root_);
+    maxId = maximum(map(node -> node.id, nodes))
+    
+    results = zeros(size(X_, 1), maxId)
+    
+    for node in nodes
+        predict_spn!(node, X_, results)
+    end
+    
+    
+    return results[:,root_.id]
+end 

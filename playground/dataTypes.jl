@@ -1,4 +1,4 @@
-mutable struct GPSumNode <: SumNode{Any}
+@everywhere mutable struct GPSumNode <: SumNode{Any}
     id::Int
     parents::Vector{SPNNode}
     children::Vector{SPNNode}
@@ -15,7 +15,7 @@ mutable struct GPSumNode <: SumNode{Any}
     end
 end
 
-mutable struct FiniteSplitNode <: ProductNode
+@everywhere mutable struct FiniteSplitNode <: ProductNode
     id::Int
     parents::Vector{SPNNode}
     children::Vector{SPNNode}
@@ -29,12 +29,14 @@ mutable struct FiniteSplitNode <: ProductNode
     end
 end
 
-mutable struct GPLeaf{T} <: Leaf{Any}
+@everywhere mutable struct GPLeaf{T} <: Leaf{Any}
     id::Int
     gp::GaussianProcesses.GPE
+    minx::Vector
+    maxx::Vector
     parents::Vector{SPNNode}
     
     function GPLeaf{T}(id, gp) where T <: Any
-        new(id, gp)
+        new(id, gp, Float64[], Float64[])
     end
 end
