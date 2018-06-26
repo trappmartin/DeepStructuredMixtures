@@ -104,7 +104,7 @@ function optimize2!(gp::GPBase; method=LBFGS(),
     min_results = init
     
     try
-        results = Optim.optimize(func, init, method, Optim.Options(iterations = iterations))
+        results = Optim.optimize(func, init, method)
         min_results = Optim.minimizer(results)
     catch err
         println(err)

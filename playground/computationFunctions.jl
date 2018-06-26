@@ -437,15 +437,19 @@ function spn_density(root, x, y)
 end
 
 
-function predict_spn!(node::GPLeaf, X_::Matrix, results::Matrix)
+@everywhere function predict_spn!(node::GPLeaf, X_::Matrix)
     s = X_ .> node.minx'
     s .&= X_ .<= node.maxx'
 
     s = vec(all(s, 2));
     μ, σ = predict_y(node.gp, X_[s,:]')
     
-    results[:,node.id] = 0.
-    results[s,node.id] = μ
+    results = zeros(size(X_, 1))
+    
+    results[:] = 0.
+    results[s] = μ
+    
+    results
 end
 
 function predict_spn!(node::FiniteSplitNode, X_::Matrix, results::Matrix)
@@ -469,10 +473,17 @@ function predict_spn!(root_::GPSumNode, X_::Matrix)
     
     results = zeros(size(X_, 1), maxId)
     
-    for node in nodes
-        predict_spn!(node, X_, results)
+    gpnodes = filter(n -> isa(n, GPLeaf), nodes)
+    
+    predictions = pmap(n -> predict_spn!(n, X_), gpnodes)
+    
+    for (ni, node) in enumerate(gpnodes)
+        results[:,node.id] = predictions[ni]
     end
     
+    for node in filter(n -> !isa(n, GPLeaf), nodes)
+        predict_spn!(node, X_, results)
+    end
     
     return results[:,root_.id]
 end 

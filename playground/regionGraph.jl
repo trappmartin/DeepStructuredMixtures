@@ -197,8 +197,8 @@ function poonDomingos_ND(δ::Vector, minX::Vector, maxX::Vector, maxDepth::Int, 
         # create partitions and new regions
         for split in splits
 
-            create_sum_region = (r.max .- r.min) .> δ
-            create_sum_region[d] = (split - r.min[d]) > δ[d]
+            create_sum_region = (r.max .- r.min) .> 2*δ
+            create_sum_region[d] = (split - r.min[d]) > 2*δ[d]
             
             rmax = copy(r.max)
             rmax[d] = split
@@ -217,8 +217,8 @@ function poonDomingos_ND(δ::Vector, minX::Vector, maxX::Vector, maxDepth::Int, 
                 println("Samples in expert: ", s)
             end
             
-            create_sum_region = (r.max .- r.min) .> δ
-            create_sum_region[d] = (r.max[d] - split) > δ[d]
+            create_sum_region = (r.max .- r.min) .> 2*δ
+            create_sum_region[d] = (r.max[d] - split) > 2*δ[d]
             
             rmin = copy(r.min)
             rmin[d] = split
@@ -264,6 +264,7 @@ function poonDomingos_ND(δ::Vector, minX::Vector, maxX::Vector, maxDepth::Int, 
             end
             
             if (rmax[d] - r.min[d]) <= 2.5*δ[d]
+                println("remaining size: ", (r.max[d] - rmin[d]), " <= ", δ[d], " next depth! - ", regionDepth[r])
                 regionDepth[r1] = regionDepth[r] + 1
             else
                 println("remaining size: ", (r.max[d] - rmin[d]), " > ", δ[d])
@@ -271,6 +272,7 @@ function poonDomingos_ND(δ::Vector, minX::Vector, maxX::Vector, maxDepth::Int, 
             end
             
             if (r.max[d] - rmin[d]) <= 2.5*δ[d]
+                println("remaining size: ", (r.max[d] - rmin[d]), " <= ", δ[d], " next depth! - ", regionDepth[r])
                 regionDepth[r2] = regionDepth[r] + 1
             else
                 println("remaining size: ", (r.max[d] - rmin[d]), " > ", δ[d])
