@@ -1,4 +1,4 @@
-module GP-SPN
+module DeepGaussiaProcessExperts
 
     using Reexport
     @reexport using SumProductNetworks
