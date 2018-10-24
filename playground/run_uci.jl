@@ -11,6 +11,8 @@ function parse_commandline()
         "dataset"
             help = "dataset name"
             required = true
+        "outputDir"
+            required = true
         "seed"
             arg_type = Int
             required = true
@@ -90,41 +92,27 @@ function main()
     yhat = Xtest * a
     rmse_ridge = sqrt(mean((yhat .- ytest).^2))
 
-    # random forest regression
-
-
     # gaussian process regression (if N < 1000)
     rmse_gp_fixed_noise = Inf
     rmse_gp_opt_noise = Inf
 
-    if Ntrain < 1000
-        mZero = MeanZero()
-        kern = SE(-1.0,0.0) 
-        logObsNoise = -1.0
+    mZero = MeanZero()
+    kern = SE(-1.0,0.0) 
+    logObsNoise = -1.0
 
-        yhat_fixed = zeros(size(ytest))
-        yhat_opt = zeros(size(ytest))
+    yhat_fixed = zeros(size(ytest))
+    yhat_opt = zeros(size(ytest))
 
-        for yi in 1:Dy
+    for yi in 1:Dy
+        srand(run)
+        gp_ = GP(Xtrain', vec(ytrain[:,yi]), MeanZero(), SE(-1.0,0.0), -1.)
+        optimize2!(gp_, domean = false, kern = true, noise = false, lik=false)
 
-            # fixed noise
-            gp_ = GP(Xtrain', vec(ytrain[:,yi]), MeanZero(), SE(-1.0,0.0), -1.)
-            #optimize2!(gp_, mean = false, kern = true, noise = false, lik=false)
-
-            μ, σ² = predict_y(gp_, Xtest')
-            yhat_fixed[:,yi] = μ
-
-            # optimized noise
-            #gp_ = GP(Xtrain', vec(ytrain[:,yi]), MeanZero(), SE(-1.0,0.0), -1.)
-            #optimize2!(gp_, mean = false, kern = true, noise = true, lik=false)
-
-            #μ, σ² = predict_y(gp_, Xtest');
-            #yhat_opt[:,yi] = μ
-        end
-
-        rmse_gp_fixed_noise = sqrt(mean((yhat_fixed .- ytest).^2))
-        #rmse_gp_opt_noise = sqrt(mean((yhat_opt .- ytest).^2))
+        μ, σ² = predict_y(gp_, Xtest')
+        yhat_fixed[:,yi] = μ
     end
+
+    rmse_gp_fixed_noise = sqrt(mean((yhat_fixed .- ytest).^2))
 
     # SPN-GP
     (N, D) = size(Xtrain)
@@ -164,12 +152,12 @@ function main()
 
         global gID = 1
 
-        # optimize noise
+        srand(run)
         root_ = convertToSPN_ND(rootRegion, gpRegions, RegionIDs, PartitionIDS, Xtrain, ytrain[:,yi], meanFunction, 
             kernelFunctions, kernelPriors, noise; overlap = overlap, do_mcmc = false)
 
         gpnodes = unique(filter(n -> isa(n, GPLeaf), SumProductNetworks.getOrderedNodes(root_)));
-        #map(gnode -> optimize2!(gnode.gp, mean = false, kern = true, noise = true, lik=false), gpnodes);
+        map(gnode -> optimize2!(gnode.gp, domean = false, kern = true, noise = false, lik=false), gpnodes);
 
         fill!(root_.prior_weights, 1. / length(root_))
         fill!(root_.posterior_weights, 1. / length(root_))
@@ -180,32 +168,11 @@ function main()
         μ = predict_spn!(root_, Xtest);
         yhat_fixed[:,yi] = μ
 
-        #global gID = 1
-
-        # fixed noise
-        #root_ = convertToSPN_ND(rootRegion, gpRegions, RegionIDs, PartitionIDS, Xtrain, ytrain[:,yi], meanFunction, 
-        #    kernelFunctions, kernelPriors, noise; overlap = overlap, do_mcmc = false)
-
-        #gpnodes = unique(filter(n -> isa(n, GPLeaf), SumProductNetworks.getOrderedNodes(root_)));
-        #map(gnode -> optimize2!(gnode.gp, mean = false, kern = true, noise = false, lik=false), gpnodes);
-
-        #fill!(root_.prior_weights, 1. / length(root_))
-        #fill!(root_.posterior_weights, 1. / length(root_))
-
-        #spn_update!(root_)
-        #spn_posterior(root_)
-
-        #μ = predict_spn!(root_, Xtest);
-        #yhat_opt[:,yi] = μ
     end
 
     rmse_spn_fixed_noise = sqrt(mean((yhat_fixed .- ytest).^2))
-    #rmse_spn_opt_noise = sqrt(mean((yhat_opt .- ytest).^2))
 
-    #writecsv("$(dataset)_$(run).csv", [rmse_mean, rmse_lls, rmse_ridge, rmse_gp_fixed_noise, rmse_gp_opt_noise,
-    #        rmse_spn_fixed_noise, rmse_spn_opt_noise])
-
-    writecsv("$(dataset)_$(run).csv", [rmse_mean, rmse_lls, rmse_ridge, rmse_gp_fixed_noise, rmse_spn_fixed_noise])
+    writecsv(joinpath(parsed_args["outputDir"], "$(dataset)_$(run).csv"), [rmse_mean, rmse_lls, rmse_ridge, rmse_gp_fixed_noise, rmse_spn_fixed_noise])
 
     info("Finished run: $(run) on dataset: $(dataset)")
 end

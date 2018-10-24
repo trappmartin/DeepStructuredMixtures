@@ -41,7 +41,7 @@ function optimize2!(gp::GPBase; method=LBFGS(),
             mean::Bool=true, kern::Bool=true, noise::Bool=true, lik::Bool=true,
             lowerBound=-10, upperBound=10, iterations = 100, kwargs...)
     
-    params_kwargs = GaussianProcesses.get_params_kwargs(typeof(gp); mean=mean, kern=kern, noise=noise, lik=lik)
+    params_kwargs = GaussianProcesses.get_params_kwargs(typeof(gp); domean=mean, kern=kern, noise=noise, lik=lik)
     
     function ltarget(hyp::Vector{Float64})
         prev = get_params(gp; params_kwargs...)
