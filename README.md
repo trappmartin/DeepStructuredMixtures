@@ -1,3 +1,7 @@
 # Prerequisits
 
-1. You need to have GPFlow installed. Therefore, clone: https://github.com/GPflow/GPflow.git, and then run pip install . inside
+Downloading the data using:
+
+```
+wget http://project.ofai.at/gpspns/data.tar.gz .
+```
