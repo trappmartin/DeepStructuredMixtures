@@ -1,4 +1,4 @@
-module DeepGaussiaProcessExperts
+module DeepGaussianProcessExperts
 
     using Reexport
     @reexport using SumProductNetworks
