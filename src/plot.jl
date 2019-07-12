@@ -6,11 +6,14 @@
     D = lgp isa AbstractArray ? size(first(lgp).x, 1) : size(lgp.x, 1)
 
     if D == 1
-        xlims --> (minimum(lgp.x), maximum(rgp.x))
+        xmin = lgp isa AbstractArray ? mapreduce(gp -> minimum(gp.x[1,:]), min, lgp) : minimum(lgp.x[1,:])
+        xmax = rgp isa AbstractArray ? mapreduce(gp -> maximum(gp.x[1,:]), max, rgp) : maximum(rgp.x[1,:])
+
+        xlims --> (xmin, xmax)
         xmin, xmax = plotattributes[:xlims]
         x = range(xmin, stop=xmax, length=100)
 
-        y, Σ = DeepGaussianProcessExperts.predict(spn, x)
+        y, Σ = predict(spn, x)
         err = GaussianProcesses.invΦ((1+β)/2)*sqrt.(Σ)
 
         @series begin
@@ -45,6 +48,7 @@
         ygrid = repeat(y, 1, n)
 
         μ, Σ = predict(spn, hcat(vec(xgrid), vec(ygrid)))
+        #Σ[Σ .> 3] .= 3
 
         if var
             zgrid  = reshape(Σ,n,n)

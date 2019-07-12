@@ -13,7 +13,7 @@ module DeepGaussianProcessExperts
 
     export GPSumNode, GPSplitNode, GPNode, SPNGPConfig
     export getchild, leftGP, rightGP, predict, getx, gety, rand,
-            buildTree, optimize!, stats, resample!
+            buildTree, optimize!, stats, resample!, optim!, target
 
     # Type definitions
     struct GPSumNode{T<:Real} <: SumNode
@@ -43,10 +43,11 @@ module DeepGaussianProcessExperts
         kernels
         observationNoise::Float64
         minData::Int
-        K::Int
-        V::Int
-        depth::Int
-        bnoise::Float64
+        K::Int # number of splits per GPSplitNode
+        V::Int # number of children under GPSumNode
+        depth::Int # maximum depth (consecutive sum-product nodes)
+        bnoise::Float64 # split noise
+        sumRoot::Bool # use sum root
     end
 
     include("common.jl")
