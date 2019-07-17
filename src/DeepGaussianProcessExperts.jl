@@ -11,6 +11,10 @@ module DeepGaussianProcessExperts
     import GaussianProcesses.predict
     import GaussianProcesses.optimize!
 
+    import SumProductNetworks.scope
+    import SumProductNetworks.hasscope
+    import SumProductNetworks.hasobs
+
     export GPSumNode, GPSplitNode, GPNode, SPNGPConfig
     export getchild, leftGP, rightGP, predict, getx, gety, rand,
             buildTree, optimize!, stats, resample!, optim!, target
@@ -36,10 +40,22 @@ module DeepGaussianProcessExperts
         id::Symbol
         parents::Vector{<:Node}
         dist::GaussianProcesses.GPBase
+        observations::Vector{Int}
     end
 
+    @inline hasscope(node::GPNode) = true
+    @inline hasscope(node::GPSumNode) = true
+    @inline hasscope(node::GPSplitNode) = true
+
+    @inline scope(node::GPNode) = node.observations
+    @inline scope(node::GPSplitNode) = mapreduce(scope, vcat, children(node))
+    @inline scope(node::GPSumNode) = scope(node[1])
+
+    @inline hasobs(node::GPNode) = false
+    @inline hasobs(node::GPSplitNode) = false
+    @inline hasobs(node::GPSumNode) = false
+
     struct SPNGPConfig
-        meanFunction
         kernels
         observationNoise::Float64
         minData::Int

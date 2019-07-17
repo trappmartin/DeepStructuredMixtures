@@ -13,7 +13,7 @@
         xmin, xmax = plotattributes[:xlims]
         x = range(xmin, stop=xmax, length=100)
 
-        y, Σ = predict(spn, x)
+        y, Σ = predict(spn, reshape(x, :, 1))
         err = GaussianProcesses.invΦ((1+β)/2)*sqrt.(Σ)
 
         @series begin

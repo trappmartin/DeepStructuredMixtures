@@ -1,4 +1,4 @@
-function getchild(node::GPSplitNode, x::AbstractArray)
+function getchild(node::GPSplitNode, x::AbstractMatrix)
     idx = zeros(Int, size(x,1))
     for n in 1:size(x,1)
         k = 1
@@ -22,45 +22,65 @@ rightGP(node::GPSumNode) = mapreduce(rightGP, vcat, children(node))
 rightGP(node::GPSplitNode) = rightGP(last(children(node)))
 rightGP(node::GPNode) = node.dist
 
-function _predict(node::GPNode, x::AbstractVector)
-    μ, σ² = GaussianProcesses.predict_f(node.dist, x)
-    return μ, log.(μ.^2), log.(σ²), ones(Int, length(x))
-end
-
-function _predict(node::GPNode, x::AbstractArray)
+function _predict(node::GPNode, x::AbstractMatrix, μmin)
     μ, σ² = GaussianProcesses.predict_f(node.dist, x')
-    return μ, log.(μ.^2), log.(σ²), ones(Int, size(x,1))
+    return log.(μ-μmin), log.(μ.^2), log.(σ²), ones(Int, size(x,1))
 end
 
-function predict(node::GPNode, x::AbstractArray)
-    μ, _, lwσ², _ = _predict(node, x)
-    return μ, exp.(lwσ²)
+function _minpredict(node::GPNode, x::AbstractMatrix)
+    μ, σ² = GaussianProcesses.predict_f(node.dist, x')
+    return μ
 end
 
-function _predict(node::GPSplitNode, x::AbstractArray)
+function _minpredict(node::GPSplitNode, x::AbstractMatrix)
     idx = getchild(node, x)
     μ = zeros(size(x,1))
+    for (k, c) in enumerate(children(node))
+        j = findall(idx .== k)
+        μ_ = _minpredict(c, x[j,:])
+        μ[j] = μ_
+    end
+    return μ
+end
+
+function _minpredict(node::GPSumNode, x::AbstractMatrix)
+    μ = ones(size(x,1)) * Inf
+    for (k, c) in enumerate(children(node))
+        μ = vec(minimum([μ _minpredict(c, x)], dims=2))
+    end
+    return μ
+end
+
+function predict(node::GPNode, x::AbstractMatrix)
+    μmin = _minpredict(node, x)
+    lμ, _, lwσ², _ = _predict(node, x, μmin .- 1)
+    return exp.(lμ) + μmin .- 1, exp.(lwσ²)
+end
+
+function _predict(node::GPSplitNode, x::AbstractMatrix, μmin)
+    idx = getchild(node, x)
+    lμ = zeros(size(x,1))
     lwμ² = zeros(size(x,1))
     lwσ² = zeros(size(x,1))
     n = zeros(Int, size(x,1))
     for (k, c) in enumerate(children(node))
         j = findall(idx .== k)
-        μ_, lwμ²_, lwσ²_, n_ = x isa AbstractVector ? _predict(c, x[j]) : _predict(c, x[j,:])
-        μ[j] = μ_
+        lμ_, lwμ²_, lwσ²_, n_ = _predict(c, x[j,:], μmin[j])
+        lμ[j] = lμ_
         lwμ²[j] = lwμ²_
         lwσ²[j] = lwσ²_
         n[j] = n_
     end
-    return μ, lwμ², lwσ², n
+    return lμ, lwμ², lwσ², n
 end
 
-function predict(node::GPSplitNode, x::AbstractArray)
+function predict(node::GPSplitNode, x::AbstractMatrix)
     idx = getchild(node, x)
     μ = zeros(size(x,1))
     σ² = zeros(size(x,1))
     for (k, c) in enumerate(children(node))
         j = findall(idx .== k)
-        m, s = x isa AbstractVector ? predict(c, x[j]) : predict(c, x[j,:])
+        m, s = predict(c, x[j,:])
         μ[j] = m
         σ²[j] = s
     end
@@ -85,29 +105,35 @@ end
 #     return μ[i], σ²[i], sqrt.(σ²[i])
 # end
 
-function _predict(node::GPSumNode, x::AbstractArray)
 
-    μ = zeros(size(x,1))
+function _predict(node::GPSumNode, x::AbstractMatrix, μmin)
+
+    lμ = zeros(size(x,1), length(node))
     lwμ² = zeros(size(x,1), length(node))
     lwσ² = zeros(size(x,1), length(node))
     n = zeros(Int, size(x,1))
 
     for (k, c) in enumerate(children(node))
-        μ_, lwμ²_, lwσ²_, n_ = _predict(c, x)
+        lμ_, lwμ²_, lwσ²_, n_ = _predict(c, x, μmin)
 
-        μ += weights(node)[k] * μ_
+        lμ[:,k] = lμ_ .+ logweights(node)[k]
         lwμ²[:,k] = lwμ²_ .+ logweights(node)[k]
         lwσ²[:,k] = lwσ²_ .+ logweights(node)[k]
         n += n_
     end
 
-    return μ, vec(lse(lwμ²)), vec(lse(lwσ²)), n
+    return vec(lse(lμ)), vec(lse(lwμ²)), vec(lse(lwσ²)), n
 end
 
-function predict(node::GPSumNode, x::AbstractArray)
-    μ, lwμ², lwσ², n = _predict(node, x)
+
+function predict(node::GPSumNode, x::AbstractMatrix)
+
+    μmin = _minpredict(node, x)
+
+    lμ, lwμ², lwσ², n = _predict(node, x, μmin .- 1)
+    μ = exp.(lμ) + μmin .- 1
     #FIXME: The division by 10 is a dirty fix agains numerical issues we have.
-    v = exp.(lwσ²) + (exp.(lwμ²) - μ.^2) / 10
+    v = exp.(lwσ²) + (exp.(lwμ²) - μ.^2)#/10
     return μ, v
 end
 

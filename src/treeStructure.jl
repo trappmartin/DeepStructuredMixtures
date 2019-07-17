@@ -6,10 +6,12 @@ function buildTree(X::AbstractMatrix, y::AbstractVector, config::SPNGPConfig)
     lowerBound = ones(D) * -Inf
     upperBound = ones(D) * Inf
 
+    observations = collect(1:N)
+
     if config.sumRoot
-        _buildSum(X, y, lowerBound, upperBound, config, 0)
+        _buildSum(X, y, lowerBound, upperBound, config, 0, observations)
     else
-        _buildSplit(X, y, lowerBound, upperBound, config, 0)
+        _buildSplit(X, y, lowerBound, upperBound, config, 0, observations)
     end
 end
 
@@ -19,13 +21,13 @@ function _buildSplit(
                     lowerBound::Vector{Float64},
                     upperBound::Vector{Float64},
                     config::SPNGPConfig,
-                    depth::Int;
+                    depth::Int,
+                    observations::Vector{Int};
                     d = 1
                   )
 
     s = -Inf
     if size(X,1) > config.minData
-        @info "here"
         s_new = mean(X[:,d])
 
         z1 = 0
@@ -50,7 +52,6 @@ function _buildSplit(
 
     split = Vector{Tuple{Int, Float64}}()
     if isfinite(s)
-        @info "here 1"
         push!(split, (d, s))
     end
     push!(split, (d, upperBound[d]))
@@ -59,8 +60,6 @@ function _buildSplit(
                         lowerBound, upperBound, split)
 
     if isfinite(s)
-
-        @info "here 2"
         # first child
         lb = deepcopy(lowerBound)
         ub = deepcopy(upperBound)
@@ -69,12 +68,16 @@ function _buildSplit(
         if (length(idx) > config.minData) && (depth < config.depth)
             if config.sumRoot
                 dnew = d+1 > size(X,2) ? 1 : d+1
-                add!(node, _buildSum(view(X, idx, :), y[idx], lb, ub, config, depth, d = dnew))
+                add!(node,
+                    _buildSum(X[idx,:], y[idx], lb, ub, config, depth, observations[idx], d = dnew)
+                    )
             else
-                add!(node, _buildSplit(view(X, idx, :), y[idx], lb, ub, config, depth))
+                add!(node,
+                    _buildSplit(X[idx,:], y[idx], lb, ub, config, depth, observations[idx])
+                    )
             end
         else
-            add!(node, _buildGP(view(X, idx, :), y[idx], lb, ub, config))
+            add!(node, _buildGP(X[idx,:], y[idx], lb, ub, config, observations[idx]))
         end
 
         # second child
@@ -85,15 +88,21 @@ function _buildSplit(
         if (length(idx) > config.minData) && (depth < config.depth)
             if config.sumRoot
                 dnew = d+1 > size(X,2) ? 1 : d+1
-                add!(node, _buildSum(view(X, idx, :), y[idx], lb, ub, config, depth, d = dnew))
+                add!(node,
+                    _buildSum(X[idx,:], y[idx], lb, ub, config, depth, observations[idx], d = dnew)
+                    )
             else
-                add!(node, _buildSplit(view(X, idx, :), y[idx], lb, ub, config, depth))
+                add!(
+                    node, _buildSplit(X[idx,:], y[idx], lb, ub, config, observations[idx], depth)
+                    )
             end
         else
-            add!(node, _buildGP(view(X, idx, :), y[idx], lb, ub, config))
+            add!(node,
+                _buildGP(view(X, idx, :), y[idx], lb, ub, config, observations[idx])
+                )
         end
     else
-        add!(node, _buildGP(X, y, lowerBound, upperBound, config))
+        add!(node, _buildGP(X, y, lowerBound, upperBound, config, observations))
     end
 
     return node
@@ -105,7 +114,8 @@ function _buildSum(
                     lowerBound::Vector{Float64},
                     upperBound::Vector{Float64},
                     config::SPNGPConfig,
-                    depth::Int;
+                    depth::Int,
+                    observations::Vector{Int};
                     d = 1
                   )
     V = config.V
@@ -119,7 +129,9 @@ function _buildSum(
     end
 
     for v = 1:V
-        add!(node, _buildSplit(X, y, lowerBound, upperBound, config, depth+1, d = dims[v]), log(w[v]))
+        add!(node,
+            _buildSplit(X, y, lowerBound, upperBound, config, depth+1, observations, d = dims[v]), log(w[v])
+            )
     end
     return node
 end
@@ -128,7 +140,8 @@ function _buildGP(X::AbstractMatrix,
                     y::AbstractVector,
                     lowerBound::Vector{Float64},
                     upperBound::Vector{Float64},
-                    config::SPNGPConfig )
+                    config::SPNGPConfig,
+                    observations::Vector{Int} )
 
     if config.kernels isa AbstractVector
 
@@ -136,22 +149,20 @@ function _buildGP(X::AbstractMatrix,
         node = GPSumNode{Float64}(gensym("sum"), Vector{Node}(), Vector{SPNNode}(), Vector{Float64}())
 
         for v in 1:length(config.kernels)
-            meanFun = deepcopy(config.meanFunction)
             kern = deepcopy(config.kernels[v])
             obsNoise = copy(config.observationNoise)
 
             # create a full GP
-            gp = GP(X', y, meanFun, kern, obsNoise)
-            add!(node, GPNode(gensym("GP"), Vector{Node}(), gp), log(w[v]))
+            gp = GP(X', y, MeanConst(mean(y)), kern, obsNoise)
+            add!(node, GPNode(gensym("GP"), Vector{Node}(), gp, observations), log(w[v]))
         end
         return node
     else
-        meanFun = deepcopy(config.meanFunction)
         kern = deepcopy(config.kernels)
         obsNoise = copy(config.observationNoise)
 
         # create a full GP
-        gp = GP(X', y, meanFun, kern, obsNoise)
-        return GPNode(gensym("GP"), Vector{Node}(), gp)
+        gp = GP(X', y, MeanConst(mean(y)), kern, obsNoise)
+        return GPNode(gensym("GP"), Vector{Node}(), gp, observations)
     end
 end
