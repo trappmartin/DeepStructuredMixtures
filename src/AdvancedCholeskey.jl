@@ -1,13 +1,17 @@
 """
-    AdvancedCholeskey module
+# AdvancedCholeskey module
 
 This module aims to implement extensions to existing Cholesky factorisations
 available in Julia. 
 
-Contains:
+## Content:
 * `chol_continue!`: Continue a partial Cholesky factorisation.
 * `test1`: Test for `chol_continue!`
 * `rightlooking_cholesky!`: Right-looking Cholesky factorization (WIP).
+
+## References:
+* E. Anderson and J.J. Dongarra (1990) "Evaluating block algorithm variants in LAPACK." University of Tennessee. Computer Science Department.
+* M. Gates, J. Kurzak, P. Luszczek, Y. Pei and J.J. Dongarra (2017) "Autotuning Batch Cholesky Factorization in CUDA with Interleaved Layout of Matrices." IEEE International Parallel and Distributed Processing Symposium Workshops.
 
 """
 module AdvancedCholeskey
