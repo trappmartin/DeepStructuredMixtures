@@ -1,10 +1,7 @@
-using Revise
 using DeepGaussianProcessExperts
-using DelimitedFiles
-using Plots, StatsPlots
-using StatsFuns: logistic
+using Plots
 using GaussianProcesses
-using LinearAlgebra, Random, Printf
+using LinearAlgebra, Random
 
 N = 200
 
@@ -16,75 +13,22 @@ x = rand(-4:0.0001:4, N, 1) .+ randn(N)
 f(x) = 0.5*abs.(x) + sin.(0.5*x) + 0.2*x
 y = vec(f(x) + 0.2 * randn(N))
 
-#y = y .- mean(y)
-
-# SPN-GP with a single GP (full GP)
-config = SPNGPConfig(
-    SE(log(1.0), log(1.0)),
-    log(1.0),
-    500,
-    2,
-    2,
-    1,
-    0.0,
-    false
-)
-root = buildTree(x, y, config);
-c_root = mapreduce(n -> n^3, +, stats(root)[:ndata])
-plot(root, title = "GP - Complexity: O($(@sprintf("%.0E", c_root)))")
-savefig("1D-GP.png")
-
 # SPN-GP with a mutliple independent GPs
 config = SPNGPConfig(
     SE(log(1.0), log(1.0)),
-    log(1.0),
+    2,
     20, # max num.samples
     3, # K
-    4, # V
-    1, # depth
-    0.6,
+    2, # V
+    2, # depth
+    0.5,
     true
 )
-root = buildTree(x, y, config);
+spn = buildTree(x, y, config);
 
-@inline getRegions(node::GPNode) = [node.observations]
-@inline getRegions(node::GPSplitNode) = mapreduce(getRegions, vcat, children(node))
-@inline getRegions(node::GPSumNode) = mapreduce(getRegions, vcat, children(node))
-r = getRegions(root)
+#DeepGaussianProcessExperts.update!(root)
 
-
-
-@inline getOverlap(node::GPNode) = getRegions(node)
-@inline getOverlap(node::GPSplitNode) = mapreduce(getOverlap, vcat, children(node))
-function getOverlap(node::GPSumNode)
-    r = map(getOverlap, children(node))
-
-    overlap = r[1]
-    for k in 2:length(node)
-        for j in 1:length(overlap)
-            i = argmax(map(length, map(r_ -> intersect(overlap[j], r_), r[k])))
-            overlap[j] = intersect(overlap[j], r[k][i])
-        end
-    end
-
-    return overlap
-end
-
-r = getOverlap(root)
-
-
-DeepGaussianProcessExperts.update!(root)
-c_root = mapreduce(n -> n^3, +, stats(root)[:ndata])
-
-
-
-
-
-
-plot(root, title = "SPN-GP - Complexity: O($(@sprintf("%.0E", c_root)))")
-savefig("1D-SPN-GP.png")
-
-
+"""
 # --                   -- #
 # 2D regression problem   #
 # --                   -- #
@@ -113,11 +57,11 @@ config = SPNGPConfig(
 root = buildTree(x, y, config);
 c_root = mapreduce(n -> n^3, +, stats(root)[:ndata])
 plot(root, n=100, seriescolor=:blues, fill=true, lw=0.1,
-    var=true, title = "Full GP (variance) - Complexity: O($(@sprintf("%.0E", c_root)))")
+    var=true, title = "Full GP (variance) - Complexity: ")
 savefig("fullGP_var.png")
 
 plot(root, n=100, seriescolor=:blues, fill=true, lw=0.1,
-    var=false, title = "Full GP (mean) - Complexity: O($(@sprintf("%.0E", c_root)))")
+    var=false, title = "Full GP (mean) - Complexity: ")
 savefig("fullGP_mean.png")
 
 # SPN-GP with a mutliple independent GPs
@@ -137,11 +81,11 @@ root = buildTree(x, y, config);
 c_root = mapreduce(n -> n^3, +, stats(root)[:ndata])
 DeepGaussianProcessExperts.update!(root)
 plot(root, n=100, seriescolor=:blues,
-    fill=true, lw=0.1, var = false, legend=false, title = "SPN-GP (mean) - Complexity: O($(@sprintf("%.0E", c_root)))")
+    fill=true, lw=0.1, var = false, legend=false, title = "SPN-GP (mean) - Complexity: ")
 savefig("SPN-GP_mean.png")
 
 plot(root, n=100, seriescolor=:blues,
-    fill=true, lw=0.1, var = true, title = "SPN-GP (variance) - Complexity: O($(@sprintf("%.0E", c_root)))")
+    fill=true, lw=0.1, var = true, title = "SPN-GP (variance) - Complexity: ")
 savefig("SPN-GP_var.png")
 
 # Optimization
@@ -166,3 +110,4 @@ savefig("SPN-GP-opt_mean.png")
 plot(root, n=100, seriescolor=:blues,
     fill=true, lw=0.1, var = true, legend=false, title = "SPN-GP (variance)")
 savefig("SPN-GP-opt_var.png")
+"""

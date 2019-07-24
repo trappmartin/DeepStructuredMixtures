@@ -153,8 +153,15 @@ function _buildGP(X::AbstractMatrix,
             obsNoise = copy(config.observationNoise)
 
             # create a full GP
-            gp = GP(X', y, MeanConst(mean(y)), kern, obsNoise)
-            add!(node, GPNode(gensym("GP"), Vector{Node}(), gp, observations), log(w[v]))
+            #gp = GP(X', y, MeanConst(mean(y)), kern, obsNoise)
+            gp = GPE(; mean = MeanConst(mean(y)), kernel = kern, logNoise = obsNoise)
+            gp.x = X'
+            gp.y = y
+            gp.nobs = length(y)
+            gp.dim = size(X,2)
+            gp.data = GaussianProcesses.KernelData(gp.kernel, gp.x, gp.x, gp.covstrat)
+            gp.cK = GaussianProcesses.alloc_cK(gp.covstrat, gp.nobs)
+            add!(node, GPNode(gensym("GP"), Vector{Node}(), gp, observations, collect(1:length(y))), log(w[v]))
         end
         return node
     else
@@ -162,7 +169,14 @@ function _buildGP(X::AbstractMatrix,
         obsNoise = copy(config.observationNoise)
 
         # create a full GP
-        gp = GP(X', y, MeanConst(mean(y)), kern, obsNoise)
-        return GPNode(gensym("GP"), Vector{Node}(), gp, observations)
+        #gp = GP(X', y, MeanConst(mean(y)), kern, obsNoise)
+        gp = GPE(; mean = MeanConst(mean(y)), kernel = kern, logNoise = obsNoise)
+        gp.x = X'
+        gp.y = y
+        gp.nobs = length(y)
+        gp.dim = size(X,2)
+        gp.data = GaussianProcesses.KernelData(gp.kernel, gp.x, gp.x, gp.covstrat)
+        gp.cK = GaussianProcesses.alloc_cK(gp.covstrat, gp.nobs)
+        return GPNode(gensym("GP"), Vector{Node}(), gp, observations, collect(1:length(y)))
     end
 end

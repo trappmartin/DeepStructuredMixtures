@@ -188,7 +188,7 @@ function stats(node::GPNode; dict::Dict{Symbol,Any} = Dict{Symbol,Any}())
     if !haskey(dict, :ndata)
         dict[:ndata] = Vector{Int}()
     end
-    push!(dict[:ndata], length(node.dist.y))
+    push!(dict[:ndata], length(node.observations))
 end
 
 function stats(node::GPSumNode; dict::Dict{Symbol,Any} = Dict{Symbol,Any}())

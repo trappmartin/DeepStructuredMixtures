@@ -6,6 +6,8 @@ module DeepGaussianProcessExperts
     using RecipesBase
     using Distributions
     using StatsFuns
+    using PDMats: PDMat
+    using LinearAlgebra
 
     import Base.rand
     import GaussianProcesses.predict
@@ -14,6 +16,7 @@ module DeepGaussianProcessExperts
     import SumProductNetworks.scope
     import SumProductNetworks.hasscope
     import SumProductNetworks.hasobs
+    import SumProductNetworks.params
 
     export GPSumNode, GPSplitNode, GPNode, SPNGPConfig
     export getchild, leftGP, rightGP, predict, getx, gety, rand,
@@ -41,7 +44,10 @@ module DeepGaussianProcessExperts
         parents::Vector{<:Node}
         dist::GaussianProcesses.GPBase
         observations::Vector{Int}
+        ordering::Vector{Int}
     end
+
+    params(node::GPNode) = GaussianProcesses.get_params(node.dist)
 
     @inline hasscope(node::GPNode) = true
     @inline hasscope(node::GPSumNode) = true
@@ -70,5 +76,7 @@ module DeepGaussianProcessExperts
     include("treeStructure.jl")
     include("plot.jl")
     include("optimizeStructure.jl")
+    include("fit.jl")
+
 
 end
