@@ -78,6 +78,6 @@ module DeepGaussianProcessExperts
     include("plot.jl")
     include("optimizeStructure.jl")
     include("fit.jl")
-
+    include("AdvancedCholeskey.jl")
 
 end

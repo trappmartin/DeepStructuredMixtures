@@ -2,90 +2,102 @@
 # AdvancedCholeskey module
 
 This module aims to implement extensions to existing Cholesky factorisations
-available in Julia. 
-
-## Content:
-* `chol_continue!`: Continue a partial Cholesky factorisation.
-* `test1`: Test for `chol_continue!`
-* `rightlooking_cholesky!`: Right-looking Cholesky factorization (WIP).
-
-## References:
-* E. Anderson and J.J. Dongarra (1990) "Evaluating block algorithm variants in LAPACK." University of Tennessee. Computer Science Department.
-* M. Gates, J. Kurzak, P. Luszczek, Y. Pei and J.J. Dongarra (2017) "Autotuning Batch Cholesky Factorization in CUDA with Interleaved Layout of Matrices." IEEE International Parallel and Distributed Processing Symposium Workshops.
+available in Julia.
 
 """
 module AdvancedCholeskey
+using LinearAlgebra, Statistics, Random
+import LinearAlgebra.lowrankupdate
 
-using LinearAlgebra
-using BenchmarkTools
-
-export genCov, test, rightlooking_cholesky!
-
-# Helper function
 genCov(D::Int) = Symmetric(rand(D,D) .+ Matrix(I*D,D,D))
 
-"""
-Right-looking blocked Cholesky factorization.
+function lowrankupdate!(C::Cholesky, v::StridedVector, k::Int)
+    @assert k > 0
 
-The right-looking Cholesky fact. favors parallelism over data locality
-by quickly exposing a large volume of work. At the same time, it modifies
-the entire trailing submatrix.
-
-1. POTRF (current triangle)
-2. TRSM (sub-matrix below current triangle)
-3. SYRK (trailing triangle)
-
-WIP!
-"""
-function rightlooking_cholesky!(A::Symmetric{T,Array{T,2}}, 
-                                start::Int, 
-                                stop::Int; 
-                                ispotrf::Bool = false) where {T<:LinearAlgebra.BlasFloat}
-    e = size(A,1)
-    if ispotrf 
-        _, info = LAPACK.potrf!('L', view(A.data, start:stop, start:stop))
-        @assert info == zero(info)
+    A = C.factors
+    n = length(v)
+    if (size(C,1)-(k-1)) != n
+        throw(DimensionMismatch("updating vector must fit size of factorization"))
+    end
+    if C.uplo == 'U'
+        conj!(v)
     end
 
-    if e > stop
-        L = tril(A[start:stop, start:stop])
-        BLAS.trsm!('L','U','N','N',one(T),L, view(A.data, stop+1:e, start:stop))
+    for i = k:n
 
-    end
-    A
-end
+        # Compute Givens rotation
+        @inbounds c, s, r = LinearAlgebra.givensAlgorithm(A[i,i], v[i-(k-1)])
 
-function test2()
-    D = 6
-    P = 3
+        # Store new diagonal element
+        @inbounds A[i,i] = r
 
-    Σ = genCov(D)
-    A = deepcopy(Σ)
-    B = deepcopy(Σ)
-
-    LAPACK.potrf!('U', view(A.data, 1:P, 1:P))
-    LAPACK.potrf!('U', view(B.data, 1:P, 1:P))
-
-    ki = P+1
-    n = D
-    t1 = @elapsed begin
-    @inbounds begin
-        for k = 1:ki-1
-            AkkInv = inv(copy(A.data[k,k]'))
-            for j in ki:n
-                @simd for i = 1:k-1
-                    A.data[k,j] -= A.data[i,k]'A.data[i,j]
-                end
-                A.data[k,j] = AkkInv*A.data[k,j]
+        # Update remaining elements in row/column
+        if C.uplo == 'U'
+            @inbounds for j = i + 1:n
+                Aij = A[i,j]
+                vj  = v[j-(k-1)]
+                A[i,j]  =   c*Aij + s*vj
+                v[j-(k-1)]    = -s'*Aij + c*vj
+            end
+        else
+            @inbounds for j = i + 1:n
+                Aji = A[j,i]
+                vj  = v[j-(k-1)]
+                A[j,i]  =   c*Aji + s*vj
+                v[j-(k-1)]    = -s'*Aji + c*vj
             end
         end
     end
+    return C
+end
+
+function lrtest()
+
+    D = 1000
+    missing_rows = shuffle(1:(D-1))[1:10]
+    P = D - length(missing_rows)
+
+    @info "A = $D x $D , and B = $P x $P"
+    @info "# rank-1 updates: $(length(missing_rows)/P)"
+
+    # B does not contain column/row 3
+    idx = setdiff(1:D, missing_rows)
+
+    runs = 100
+
+    t1 = zeros(runs)
+    t2 = zeros(runs)
+    err = zeros(runs)
+
+    for r = 1:runs
+
+        A = genCov(D)
+        B = A[idx,idx]
+
+        # Cholesky of A
+        C = cholesky(A)
+
+        # Cholesky of B (for testing)
+        t1[r] = @elapsed CCt = cholesky(B)
+
+        # Copy Cholesky of A
+        CC = deepcopy(C)
+
+        # rank-1 update
+        t2[r] = @elapsed begin
+            @inbounds for r in missing_rows
+                lowrankupdate!(CC, view(CC.factors,r,(r+1):D), (r+1))
+            end
+        end
+
+        # compute error
+        err[r] = sum(abs.(UpperTriangular(CC.factors[idx,idx]) .- CCt.U))
     end
 
-    t2 = @elapsed BLAS.trsm!('L','U','T','N',1.0, triu(view(B.data, 1:P,1:P)), view(B.data, 1:P, ki:n))
-
-    return A, B, t1, t2
+    @info "Nunmerical error (avg): $(mean(err))"
+    @info "Time difference (avg): $(mean(t1 .- t2)) sec"
 end
+
 
 """
 Run a simple test on `chol_continue!`.
@@ -124,11 +136,11 @@ chol_continue!(A.data, UpperTriangular, 5+1)
 ```
 
 """
-function chol_continue!(A::AbstractMatrix{T}, 
-                        ::Type{UpperTriangular}, 
-                        ki::Int; 
+function chol_continue!(A::AbstractMatrix{T},
+                        ::Type{UpperTriangular},
+                        ki::Int;
                         useBLAS::Bool = true
-                        ) where {T<:LinearAlgebra.BlasFloat}
+                       ) where {T<:LinearAlgebra.BlasFloat}
     @assert !LinearAlgebra.has_offset_axes(A)
     n = LinearAlgebra.checksquare(A)
     @assert ki <= n

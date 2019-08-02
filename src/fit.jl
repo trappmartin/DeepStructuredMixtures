@@ -98,7 +98,7 @@ function fit!(spn::Union{GPSumNode, GPSplitNode}, D::Matrix)
     ids = sort(collect(1:length(gpids)), by = (i) -> P[i], rev=true)
 
     for id in ids
-    #while maxval != zero(maxval)
+        #while maxval != zero(maxval)
         gptosolve = gpids[id]
         j = argmax(D[id,:])[1]
         othergp = gpids[j]
@@ -112,7 +112,10 @@ function fit!(spn::Union{GPSumNode, GPSplitNode}, D::Matrix)
                 obs1 = gpmapping[gptosolve].observations
                 obs2 = gpmapping[othergp].observations
 
-                if sum(obs1) == sum(obs2)
+                N = sum(obs1)
+                M = sum(obs2)
+
+                if N == M
                     # both regions are equal
                     # simply copy the cholesky
                     t = @elapsed begin
@@ -124,24 +127,47 @@ function fit!(spn::Union{GPSumNode, GPSplitNode}, D::Matrix)
                 else
                     # solve using rank-1 upates ?
                     Δ = xor.(obs1, obs2) .& obs1
-                    if sum(Δ) > sum(obs1)
+                    if sum(Δ) > N
                         # solve GP
                         t = @elapsed update_mll!(gpmapping[gptosolve].dist)
                         ttotal += t
                     else
                         t = @elapsed begin
 
-                            i = 1
-                            #@inbounds for j in 1:length(obs2)
-                            #    if any(j .> Δ)
+                            Σbuffer = GaussianProcesses.mat(gpmapping[gptosolve].dist.cK)
+                            GaussianProcesses.cov!(Σbuffer,
+                                                   gpmapping[gptosolve].dist.kernel,
+                                                   gpmapping[gptosolve].dist.x,
+                                                   gpmapping[gptosolve].dist.x,
+                                                   gpmapping[gptosolve].dist.data)
 
-                            #    else
-                                #gpmapping[gptosolve].dist.cK
-                            #    end
-                            #end
+                            noise = exp(2*gpmapping[gptosolve].dist.logNoise)+eps()
+                            @inbounds for i in 1:N
+                                Σbuffer[i,i] += noise
+                            end
+                            U = gpmapping[othergp].dist.cK.chol.U
+                            C = zeros(eltype(U), N,N)
+
+                            n = 1
+                            m = 1
+                            @inbounds for j in findall(obs2)
+                                if !obs1[j]
+                                    m += 1
+                                    continue
+                                end
+
+                                if sum(Δ[1:j]) > 0
+
+                                else
+                                    C[n,n] = U[m,m]
+                                    #gpmapping[gptosolve].dist.cK
+                                end
+                                m += 1
+                                n += 1
+                            end
                         end
                         ttotal += t
-            #            @info Δ, length(obs2), length(obs1), length(Δ)
+                        #            @info Δ, length(obs2), length(obs1), length(Δ)
                     end
                 end
 
@@ -152,7 +178,7 @@ function fit!(spn::Union{GPSumNode, GPSplitNode}, D::Matrix)
             end
         else
             t = @elapsed update_mll!(gpmapping[gptosolve].dist)
-#            @info "[fit!] solved GP in: $t sec"
+            #            @info "[fit!] solved GP in: $t sec"
             ttotal += t
         end
 
@@ -173,10 +199,10 @@ function fit_naive!(spn::Union{GPSplitNode,GPSumNode})
     K = length(gpids)
 
     for gpid in gpids
- #       @info "[fit_naive!] fitting $gpid"
+        #       @info "[fit_naive!] fitting $gpid"
         t = @elapsed update_mll!(gpmapping[gpid].dist)
         ttotal += t
     end
- #   @info "[fit_naive!] finished with $ttotal sec taken for Cholesky decompositions"
+    #   @info "[fit_naive!] finished with $ttotal sec taken for Cholesky decompositions"
     ttotal
 end
