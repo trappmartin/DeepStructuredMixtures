@@ -7,11 +7,13 @@ module DeepGaussianProcessExperts
     using Distributions
     using StatsFuns
     using PDMats: PDMat
-    using LinearAlgebra
+    using LinearAlgebra, SparseArrays
+    using AxisArrays
 
     import Base.rand
     import GaussianProcesses.predict
     import GaussianProcesses.optimize!
+    import GaussianProcesses.update_mll!
 
     import SumProductNetworks.scope
     import SumProductNetworks.hasscope
@@ -43,8 +45,7 @@ module DeepGaussianProcessExperts
         id::Symbol
         parents::Vector{<:Node}
         dist::GaussianProcesses.GPBase
-        observations::Vector{Int}
-        ordering::Vector{Int}
+        observations::BitArray{1}
     end
 
     params(node::GPNode) = GaussianProcesses.get_params(node.dist)

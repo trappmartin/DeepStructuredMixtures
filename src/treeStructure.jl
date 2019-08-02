@@ -9,9 +9,9 @@ function buildTree(X::AbstractMatrix, y::AbstractVector, config::SPNGPConfig)
     observations = collect(1:N)
 
     if config.sumRoot
-        _buildSum(X, y, lowerBound, upperBound, config, 0, observations)
+        _buildSum(X, y, lowerBound, upperBound, config, 0, observations, N)
     else
-        _buildSplit(X, y, lowerBound, upperBound, config, 0, observations)
+        _buildSplit(X, y, lowerBound, upperBound, config, 0, observations, N)
     end
 end
 
@@ -22,7 +22,8 @@ function _buildSplit(
                     upperBound::Vector{Float64},
                     config::SPNGPConfig,
                     depth::Int,
-                    observations::Vector{Int};
+                    observations::Vector{Int},
+                    N::Int;
                     d = 1
                   )
 
@@ -69,15 +70,18 @@ function _buildSplit(
             if config.sumRoot
                 dnew = d+1 > size(X,2) ? 1 : d+1
                 add!(node,
-                    _buildSum(X[idx,:], y[idx], lb, ub, config, depth, observations[idx], d = dnew)
+                    _buildSum(X[idx,:], y[idx], lb, ub, config, depth,
+                              observations[idx], N, d = dnew)
                     )
             else
                 add!(node,
-                    _buildSplit(X[idx,:], y[idx], lb, ub, config, depth, observations[idx])
+                    _buildSplit(X[idx,:], y[idx], lb, ub, config, depth,
+                                observations[idx], N)
                     )
             end
         else
-            add!(node, _buildGP(X[idx,:], y[idx], lb, ub, config, observations[idx]))
+            add!(node, _buildGP(X[idx,:], y[idx], lb, ub, config,
+                                observations[idx], N))
         end
 
         # second child
@@ -89,20 +93,23 @@ function _buildSplit(
             if config.sumRoot
                 dnew = d+1 > size(X,2) ? 1 : d+1
                 add!(node,
-                    _buildSum(X[idx,:], y[idx], lb, ub, config, depth, observations[idx], d = dnew)
+                    _buildSum(X[idx,:], y[idx], lb, ub, config, depth,
+                              observations[idx], N, d = dnew)
                     )
             else
                 add!(
-                    node, _buildSplit(X[idx,:], y[idx], lb, ub, config, observations[idx], depth)
+                    node, _buildSplit(X[idx,:], y[idx], lb, ub, config,
+                                      observations[idx], N, depth)
                     )
             end
         else
             add!(node,
-                _buildGP(view(X, idx, :), y[idx], lb, ub, config, observations[idx])
+                _buildGP(view(X, idx, :), y[idx], lb, ub, config,
+                         observations[idx], N)
                 )
         end
     else
-        add!(node, _buildGP(X, y, lowerBound, upperBound, config, observations))
+        add!(node, _buildGP(X, y, lowerBound, upperBound, config, observations, N))
     end
 
     return node
@@ -115,7 +122,8 @@ function _buildSum(
                     upperBound::Vector{Float64},
                     config::SPNGPConfig,
                     depth::Int,
-                    observations::Vector{Int};
+                    observations::Vector{Int},
+                    N::Int;
                     d = 1
                   )
     V = config.V
@@ -130,7 +138,8 @@ function _buildSum(
 
     for v = 1:V
         add!(node,
-            _buildSplit(X, y, lowerBound, upperBound, config, depth+1, observations, d = dims[v]), log(w[v])
+            _buildSplit(X, y, lowerBound, upperBound, config, depth+1,
+                        observations, N, d = dims[v]), log(w[v])
             )
     end
     return node
@@ -141,7 +150,12 @@ function _buildGP(X::AbstractMatrix,
                     lowerBound::Vector{Float64},
                     upperBound::Vector{Float64},
                     config::SPNGPConfig,
-                    observations::Vector{Int} )
+                    observations::Vector{Int},
+                    N::Int
+                )
+
+    myobs = falses(N)
+    myobs[observations] .= true
 
     if config.kernels isa AbstractVector
 
@@ -161,7 +175,7 @@ function _buildGP(X::AbstractMatrix,
             gp.dim = size(X,2)
             gp.data = GaussianProcesses.KernelData(gp.kernel, gp.x, gp.x, gp.covstrat)
             gp.cK = GaussianProcesses.alloc_cK(gp.covstrat, gp.nobs)
-            add!(node, GPNode(gensym("GP"), Vector{Node}(), gp, observations, collect(1:length(y))), log(w[v]))
+            add!(node, GPNode(gensym("GP"), Vector{Node}(), gp, myobs), log(w[v]))
         end
         return node
     else
@@ -177,6 +191,6 @@ function _buildGP(X::AbstractMatrix,
         gp.dim = size(X,2)
         gp.data = GaussianProcesses.KernelData(gp.kernel, gp.x, gp.x, gp.covstrat)
         gp.cK = GaussianProcesses.alloc_cK(gp.covstrat, gp.nobs)
-        return GPNode(gensym("GP"), Vector{Node}(), gp, observations, collect(1:length(y)))
+        return GPNode(gensym("GP"), Vector{Node}(), gp, myobs)
     end
 end
