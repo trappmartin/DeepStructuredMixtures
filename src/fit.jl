@@ -1,3 +1,6 @@
+using Base.Threads
+using DeepGaussianProcessExperts.AdvancedCholesk
+
 export getOverlap, updateK!, fit!, fit_naive!
 export getLeafIds
 
@@ -5,11 +8,11 @@ export getLeafIds
 @inline getLeafIds(node::GPSplitNode) = mapreduce(getLeafIds, merge, children(node))
 @inline getLeafIds(node::GPSumNode) = mapreduce(getLeafIds, merge, children(node))
 
-@inline getOverlap(node::GPNode, D, ids) = Dict(findfirst(node.id .== ids) => node)
-@inline function getOverlap(node::GPSplitNode, D::Array, ids)
+@inline getOverlap(node::GPNode, D::Matrix{T}, ids) where {T<:Real} = Dict(findfirst(node.id .== ids) => node)
+@inline function getOverlap(node::GPSplitNode, D::Matrix{T}, ids) where {T<:Real}
     return mapreduce(c -> getOverlap(c, D, ids), merge, children(node))
 end
-function getOverlap(node::GPSumNode, D::Array, ids)
+function getOverlap(node::GPSumNode, D::Matrix{T}, ids) where {T<:Real}
     r = map(c -> getOverlap(c, D, ids), children(node))
     @inbounds begin
         for i = 1:length(r)
@@ -21,14 +24,13 @@ function getOverlap(node::GPSumNode, D::Array, ids)
                         Δ = xor.(nnode.observations, mnode.observations)
                         Δn = sum(Δ .& nnode.observations)
                         Δm = sum(Δ .& mnode.observations)
-                        D[n, m] = 1 - (Δn / sum(nnode.observations))
-                        D[m, n] = 1 - (Δm / sum(mnode.observations))
+                        D[n, m] = one(T) - T(Δn / sum(nnode.observations))
+                        D[m, n] = one(T) - T(Δm / sum(mnode.observations))
                     end
                 end
             end
         end
     end
-
 
     return reduce(merge, r)
 end
@@ -78,7 +80,7 @@ function updateK!(node::GPNode, obs::Vector{Int})
     return chol
 end
 
-function fit!(spn::Union{GPSumNode, GPSplitNode}, D::Matrix)
+function fit!(spn::Union{GPSumNode, GPSplitNode}, D::Matrix; τ = 0.2)
 
     # total time taken for Cholesky decompositions
     ttotal = 0
@@ -97,6 +99,121 @@ function fit!(spn::Union{GPSumNode, GPSplitNode}, D::Matrix)
 
     ids = sort(collect(1:length(gpids)), by = (i) -> P[i], rev=true)
 
+    obs = Vector{Vector{Int}}(undef, length(ids))
+    processed = Vector{Int}()
+    queued = Vector{Int}()
+    for i in ids
+        accept = all(j -> D[i,j] == 0, queued)
+        if accept
+            push!(queued, i)
+        end
+        obs[i] = findall(gpmapping[gpids[i]].observations)
+    end
+
+    ttotal = @elapsed for i in queued
+
+        mainGP = gpmapping[gpids[i]].dist
+        obsi = gpmapping[gpids[i]].observations
+        minMain = minimum(mainGP.x, dims=2)
+        maxMain = maximum(mainGP.x, dims=2)
+
+        # solve the main GP
+        update_mll!(mainGP)
+
+        _ids = sort(ids, by = (j) -> D[i,j], rev=true)
+
+        for j in _ids
+            if j ∈ queued
+                continue
+            end
+
+            if j ∉ processed
+                push!(processed, j)
+            else
+                continue
+            end
+
+            jGP = gpmapping[gpids[j]].dist
+            obsj = gpmapping[gpids[j]].observations
+
+            if D[i,j] == D[j,i] == one(eltype(D))
+                # copy Cholesky
+                jGP.cK = mainGP.cK
+                jGP.alpha = mainGP.alpha
+                jGP.mll = mainGP.mll
+                continue
+            end
+
+            if D[i,j] == zero(eltype(D))
+                # solve Cholesky
+                update_mll!(jGP)
+                continue
+            end
+
+            minJ = minimum(jGP.x, dims=2)
+            maxK = maximum(jGP.x, dims=2)
+
+            accept = all(minJ .>= minMain)
+
+            if !accept
+                # solve Cholesky (low rank downdates are instable!)
+                update_mll!(jGP)
+            else
+                # copy or update Cholesky
+                if D[j,i] .== one(eltype(D))
+                    # j is a sub-region or overlaps
+                    if all(minJ .== minMain)
+                        # easy case
+                        # Unfrequent situation
+                        observations_ = @inbounds filter(n -> obsj[obs[i][n]], 1:length(obs[i]))
+                        jGP.cK = PDMat(
+                                       mainGP.cK.mat[observations_,observations_],
+                                       Cholesky(
+                                                mainGP.cK.chol.factors[observations_,observations_],
+                                                mainGP.cK.chol.uplo,
+                                                mainGP.cK.chol.info
+                                               )
+                                      )
+                        update_mll!(jGP, kernel=false, mean=false, noise=false)
+                    else
+                        # solve with low-rank update
+                        # Most frequent situation
+                        observations_ = @inbounds filter(n -> obsj[obs[i][n]], 1:length(obs[i]))
+                        Δ = xor.(obsi, obsj)
+                        deltaobs = @inbounds filter(n -> Δ[obs[i][n]], 1:length(obs[i]))
+                        toupdate = @inbounds filter(n -> any(mainGP.x[:,n] .< minJ), deltaobs)
+
+                        # only do low-rank updates if sufficiently stable
+                        if (length(toupdate) / sum(obsj)) < τ
+                            @info "low-rank update"
+                            CC = deepcopy(mainGP.cK.chol)
+                            D = size(CC,1)
+                            @inbounds for n in toupdate
+                                lowrankupdate!(CC, view(CC.factors,n,(n+1):D), (n+1))
+                            end
+                        else
+                            # solve Cholesky
+                            update_mll!(jGP)
+                        end
+                        @info "2"
+                    end
+                else
+                    # j isa larger than main region
+                    if all(minJ .== minMain)
+                        # easy case
+                        # Unfrequent situation
+                        @info "3"
+                    else
+                        # solve with low-rank update & continue computation
+                        # Most frequent situation
+                        @info "4"
+                    end
+                end
+            end
+        end
+    end
+
+    """
     for id in ids
         #while maxval != zero(maxval)
         gptosolve = gpids[id]
@@ -178,12 +295,13 @@ function fit!(spn::Union{GPSumNode, GPSplitNode}, D::Matrix)
             end
         else
             t = @elapsed update_mll!(gpmapping[gptosolve].dist)
-            #            @info "[fit!] solved GP in: $t sec"
+            #            @info "[fit!] solved GP in: t sec"
             ttotal += t
         end
 
         push!(solvedIds, gptosolve)
     end
+    """
 
     #    @info "[fit!] finished with $ttotal sec taken for Cholesky decompositions"
     ttotal
@@ -191,17 +309,12 @@ end
 
 function fit_naive!(spn::Union{GPSplitNode,GPSumNode})
 
-    # total time taken for Choleskys
-    ttotal = 0
-
     gpmapping = getLeafIds(spn)
     gpids = collect(keys(gpmapping))
     K = length(gpids)
 
-    for gpid in gpids
-        #       @info "[fit_naive!] fitting $gpid"
-        t = @elapsed update_mll!(gpmapping[gpid].dist)
-        ttotal += t
+    ttotal = @elapsed Threads.@threads for gpid in gpids
+        update_mll!(gpmapping[gpid].dist)
     end
     #   @info "[fit_naive!] finished with $ttotal sec taken for Cholesky decompositions"
     ttotal

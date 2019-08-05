@@ -25,7 +25,7 @@ module DeepGaussianProcessExperts
             buildTree, optimize!, stats, resample!, optim!, target
 
     # Type definitions
-    struct GPSumNode{T<:Real} <: SumNode
+    struct GPSumNode{T<:Real} <: SumNode{T}
         id::Symbol
         parents::Vector{<:Node}
         children::Vector{<:SPNNode}
@@ -73,11 +73,12 @@ module DeepGaussianProcessExperts
         sumRoot::Bool # use sum root
     end
 
+    include("AdvancedCholeskey.jl")
+
     include("common.jl")
     include("treeStructure.jl")
     include("plot.jl")
     include("optimizeStructure.jl")
     include("fit.jl")
-    include("AdvancedCholeskey.jl")
 
 end

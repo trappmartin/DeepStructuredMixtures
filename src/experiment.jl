@@ -26,4 +26,14 @@ config = SPNGPConfig(
 )
 spn = buildTree(x, y, config);
 
+gpmapping = getLeafIds(spn);
+gpids = collect(keys(gpmapping));
+
+D = zeros(Float64, length(gpids), length(gpids));
+
+# update D
+getOverlap(spn, D, gpids);
+
+
+
 @info "finished building `spn`"
