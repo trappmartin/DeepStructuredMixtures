@@ -46,6 +46,9 @@ module DeepGaussianProcessExperts
         parents::Vector{<:Node}
         dist::GaussianProcesses.GPBase
         observations::BitArray{1}
+        firstobs::Int
+        lastobs::Int
+        nobs::Int
     end
 
     params(node::GPNode) = GaussianProcesses.get_params(node.dist)

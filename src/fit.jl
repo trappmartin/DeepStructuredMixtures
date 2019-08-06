@@ -51,35 +51,6 @@ end
     map(c -> getObservationCount!(c, P), children(node))
 end
 
-function updateK!(node::GPNode, obs::Vector{Int})
-
-    # change order of observations if necessary
-    sdiff = setdiff(node.observations, obs)
-    if !isempty(sdiff)
-        # change ordering
-        @info "Reordering ", length(sdiff), " observations from ", length(node.observations)
-        @info length(obs)
-    end
-
-    gp = node.dist
-    nobs = length(node.observations)
-    Σbuffer = GaussianProcesses.mat(gp.cK)
-    GaussianProcesses.cov!(Σbuffer, gp.kernel, gp.x, gp.x, gp.data)
-
-    noise = exp(2*gp.logNoise)+eps()
-    @inbounds for i in 1:nobs
-        Σbuffer[i,i] += noise
-    end
-
-    C, info = LAPACK.potrf!(U', Σbuffer)
-    @assert info == 0
-
-    chol = Cholesky(C, 'U', info)
-
-    gp.cK = PDMat(Σbuffer, chol)
-    return chol
-end
-
 function fit!(spn::Union{GPSumNode, GPSplitNode}, D::Matrix; τ = 0.2)
 
     # total time taken for Cholesky decompositions
@@ -102,7 +73,6 @@ function fit!(spn::Union{GPSumNode, GPSplitNode}, D::Matrix; τ = 0.2)
     obs = Vector{Vector{Int}}(undef, length(ids))
     processed = Vector{Threads.AbstractLock}(undef, length(ids))
     queued = Vector{Int}()
-    mins = Vector{Int}(undef, length(ids))
     for i in ids
         accept = all(j -> D[i,j] == 0, queued)
         if accept
@@ -110,145 +80,116 @@ function fit!(spn::Union{GPSumNode, GPSplitNode}, D::Matrix; τ = 0.2)
         end
         obs[i] = findall(gpmapping[gpids[i]].observations)
         processed[i] = SpinLock()
-        mins[i] = findfirst(gpmapping[gpids[i]].observations)
     end
 
-    for i in queued
+    ttotal = @elapsed for i in queued
 
-        mainGP = gpmapping[gpids[i]].dist
-        obsi = gpmapping[gpids[i]].observations
+        mainNode = gpmapping[gpids[i]]
+        mainGP = mainNode.dist
 
         # solve the main GP
         update_mll!(mainGP)
 
         _ids = sort(ids, by = (j) -> D[i,j], rev=true)
 
-        for j in _ids
-            if j ∈ queued
-                continue
-            end
+        for j in filter(j -> j ∉ queued, _ids)
+            if trylock(processed[j])
 
-            if !trylock(processed[j])
-                continue
-            end
+                jNode = gpmapping[gpids[j]]
+                jGP = jNode.dist
 
-            jGP = gpmapping[gpids[j]].dist
-            obsj = gpmapping[gpids[j]].observations
-
-            if D[i,j] == D[j,i] == one(eltype(D))
-                t = @elapsed begin
+                if D[i,j] == D[j,i] == one(eltype(D))
                     # copy Cholesky
                     jGP.cK.mat[:] = mainGP.cK.mat
                     jGP.cK.chol.factors[:] = mainGP.cK.chol.factors
                     jGP.alpha[:] = mainGP.alpha
                     jGP.mll = mainGP.mll
-                end
-                ttotal += t
-            elseif (D[i,j] == zero(eltype(D))) || !(mins[j] >= mins[i])
-                # solve Cholesky
-                t = @elapsed update_mll!(jGP)
-                ttotal += t
-            elseif D[j,i] == one(eltype(D))
-                # j is a sub-region or overlaps
-                if mins[j] == mins[i]
-                    # easy case
-                    # Unfrequent situation
-                    #observations_ = @inbounds filter(n -> obsj[obs[i][n]], 1:length(obs[i]))
-                    idcs = 1:sum(obsj)
-                    t = @elapsed begin
-                        jGP.cK.mat[:] = mainGP.cK.mat[idcs,idcs]
-                        jGP.cK.chol.factors[:] = mainGP.cK.chol.factors[idcs,idcs]
-                        update_mll!(jGP, kern=false, domean=false, noise=false)
-                    end
-                    ttotal += t
-                else
-                    # solve with low-rank update
-                    # Most frequent situation
-                    #observations_ = @inbounds filter(n -> obsj[obs[i][n]], 1:length(obs[i]))
-                    #Δ = xor.(obsi, obsj)
-                    #deltaobs = @inbounds filter(n -> Δ[obs[i][n]], 1:length(obs[i]))
-                    #toupdate = @inbounds filter(n -> any(mainGP.x[:,n] .< mins[j]), deltaobs)
-
-                    toupdate = 1:(1+findfirst(obsj)-findfirst(obsi))
-
-                    # only do low-rank updates if sufficiently stable
-                    if (length(toupdate) / sum(obsj)) < τ
-                        CC = copy(mainGP.cK.chol.factors)
-                        d = size(CC,1)
-                        t = @elapsed for n in toupdate
-                            AdvancedCholesky.lowrankupdate!(CC,
-                                                            view(CC,n,(n+1):d),
-                                                            (n+1),
-                                                            mainGP.cK.chol.uplo)
-                        end
-                        ttotal += t
-                        t = @elapsed begin
-                            CC.factors[observations_,observations_]
-                            jGP.cK.mat[:] = mainGP.cK.mat[observations_,observations_]
-                            jGP.cK.chol.factors[:] = CC[observations_,observations_]
+                elseif (D[i,j] == zero(eltype(D))) || !(jNode.firstobs >= mainNode.firstobs)
+                    # solve Cholesky
+                    update_mll!(jGP)
+                elseif D[j,i] == one(eltype(D))
+                    # j is a sub-region or overlaps
+                    if jNode.firstobs == mainNode.firstobs
+                        # easy case
+                        # Unfrequent situation
+                        #observations_ = @inbounds filter(n -> obsj[obs[i][n]], 1:length(obs[i]))
+                        idcs = 1:jNode.nobs
+                        begin
+                            jGP.cK.mat[:] = mainGP.cK.mat[idcs,idcs]
+                            jGP.cK.chol.factors[:] = mainGP.cK.chol.factors[idcs,idcs]
                             update_mll!(jGP, kern=false, domean=false, noise=false)
                         end
-                        ttotal += t
                     else
-                        # solve Cholesky
-                        t = @elapsed update_mll!(jGP)
-                        ttotal += t
-                    end
-                end
-            else
-                Σbuffer = GaussianProcesses.mat(jGP.cK)
-                GaussianProcesses.cov!(Σbuffer, jGP.kernel, jGP.x, jGP.x, jGP.data)
-                noise = eltype(Σbuffer)(exp(2*jGP.logNoise)+eps())
-                @inbounds Σbuffer[diagind(Σbuffer)] .+= noise
+                        # solve with low-rank update
+                        # Most frequent situation
+                        toupdate = 1:(jNode.firstobs-mainNode.firstobs)
 
-                F = jGP.cK.chol.factors
-
-                # j isa larger than main region
-                if mins[j] == mins[i]
-                    # easy case
-                    # Unfrequent situation
-                    @inbounds F[1:sum(obsi),1:sum(obsi)] = mainGP.cK.chol.factors
-                    t = @elapsed AdvancedCholesky.chol_continue(F, sum(obsi)+1)
-                    ttotal += t
-                    t = @elapsed begin
-                        update_mll!(jGP, kern=false, domean=false, noise=false)
-                    end
-                    ttotal += t
-                else
-                    # solve with low-rank update & continue computation
-                    # Most frequent situation
-                    observations_ = @inbounds filter(n -> obsj[obs[i][n]], 1:length(obs[i]))
-                    observations2_ = @inbounds filter(n -> obsi[obs[j][n]], 1:length(obs[j]))
-                    Δ = xor.(obsi, obsj)
-                    deltaobs = @inbounds filter(n -> Δ[obs[i][n]], 1:length(obs[i]))
-                    toupdate = @inbounds filter(n -> any(mainGP.x[:,n] .< mins[j]), deltaobs)
-
-                    toupdate = 1:(1+findfirst(obsj)-findfirst(obsi))
-
-                    # only do low-rank updates if sufficiently stable
-                    if (length(toupdate) / sum(obsj)) < τ
-                        CC = copy(mainGP.cK.chol.factors)
-                        d = size(CC,1)
-                        t = @elapsed @inbounds for n in toupdate
-                            AdvancedCholesky.lowrankupdate!(CC,
-                                                            view(CC,n,(n+1):d),
-                                                            (n+1),
-                                                            mainGP.cK.chol.uplo)
+                        # only do low-rank updates if sufficiently stable
+                        if (length(toupdate) / jNode.nobs) < τ
+                            CC = copy(mainGP.cK.chol.factors)
+                            d = size(CC,1)
+                            for n in toupdate
+                                AdvancedCholesky.lowrankupdate!(CC,
+                                                                view(CC,n,(n+1):d),
+                                (n+1),
+                                mainGP.cK.chol.uplo)
+                            end
+                            N = length(toupdate)+1
+                            M = jNode.nobs-1
+                            jGP.cK.mat[:] = mainGP.cK.mat[N:(N+M),N:(N+M)]
+                            jGP.cK.chol.factors[:] = CC[N:(N+M),N:(N+M)]
+                            update_mll!(jGP, kern=false, domean=false, noise=false)
+                        else
+                            # solve Cholesky
+                            update_mll!(jGP)
                         end
+                    end
+                else
+                    Σbuffer = GaussianProcesses.mat(jGP.cK)
+                    GaussianProcesses.cov!(Σbuffer, jGP.kernel, jGP.x, jGP.x, jGP.data)
+                    noise = eltype(Σbuffer)(exp(2*jGP.logNoise)+eps())
+                    @inbounds Σbuffer[diagind(Σbuffer)] .+= noise
 
-                        ttotal += t
-                        N = sum(obsi) - length(toupdate)
-                        @inbounds F[1:N,1:N] = CC[length(toupdate):end,length(toupdate):end]
-                        t = @elapsed AdvancedCholesky.chol_continue(F, N+1)
-                        ttotal += t
-                        t = @elapsed begin
+                    F = jGP.cK.chol.factors
+
+                    # j isa larger than main region
+                    if jNode.firstobs == mainNode.firstobs
+                        # easy case
+                        # Unfrequent situation
+                        @inbounds F[1:mainNode.nobs,1:mainNode.nobs] = mainGP.cK.chol.factors
+                        AdvancedCholesky.chol_continue(F, mainNode.nobs+1)
+                        begin
                             update_mll!(jGP, kern=false, domean=false, noise=false)
                         end
-                        ttotal += t
                     else
-                        # solve Cholesky
-                        t = @elapsed update_mll!(jGP)
-                        ttotal += t
+                        # solve with low-rank update & continue computation
+                        # Most frequent situation
+                        toupdate = 1:(jNode.firstobs-mainNode.firstobs)
+
+                        # only do low-rank updates if sufficiently stable
+                        if (length(toupdate) / jNode.nobs) < τ
+                            CC = copy(mainGP.cK.chol.factors)
+                            d = size(CC,1)
+                            @inbounds for n in toupdate
+                                AdvancedCholesky.lowrankupdate!(CC,
+                                                                view(CC,n,(n+1):d),
+                                                                (n+1),
+                                                                mainGP.cK.chol.uplo)
+                            end
+
+                            Ni = length(toupdate)+1
+                            N = mainNode.nobs - length(toupdate)
+                            @inbounds F[1:N,1:N] = CC[Ni:end,Ni:end]
+                            info = AdvancedCholesky.chol_continue!(F, N+1)
+                            if info == 0
+                                update_mll!(jGP, kern=false, domean=false, noise=false)
+                            else
+                                update_mll!(jGP)
+                            end
+                        else
+                            # solve Cholesky
+                            update_mll!(jGP)
+                        end
                     end
                 end
             end
@@ -263,7 +204,6 @@ function fit_naive!(spn::Union{GPSplitNode,GPSumNode})
     gpmapping = getLeafIds(spn)
     gpids = collect(keys(gpmapping))
     K = length(gpids)
-
     ttotal = @elapsed for gpid in gpids
         update_mll!(gpmapping[gpid].dist)
     end

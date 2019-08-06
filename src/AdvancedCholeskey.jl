@@ -21,7 +21,7 @@ function lowrankupdate!(A::Matrix, v::StridedVector, k::Int, uplo::Char)
     @assert k > 0
 
     n = length(v)
-    if (size(C,1)-(k-1)) != n
+    if (size(A,1)-(k-1)) != n
         throw(DimensionMismatch("updating vector must fit size of factorization"))
     end
     if uplo == 'U'
@@ -53,7 +53,7 @@ function lowrankupdate!(A::Matrix, v::StridedVector, k::Int, uplo::Char)
             end
         end
     end
-    return C
+    return A
 end
 
 function lrtest()
@@ -142,11 +142,10 @@ chol_continue!(A.data, UpperTriangular, 5+1)
 
 """
 function chol_continue!(A::AbstractMatrix{T},
-                        ::Type{UpperTriangular},
                         ki::Int;
                         useBLAS::Bool = true
                        ) where {T<:LinearAlgebra.BlasFloat}
-    @assert !LinearAlgebra.has_offset_axes(A)
+    LinearAlgebra.require_one_based_indexing(A)
     n = LinearAlgebra.checksquare(A)
     @assert ki <= n
 
@@ -177,7 +176,8 @@ function chol_continue!(A::AbstractMatrix{T},
             end
             Akk, info = LinearAlgebra._chol!(A[k,k], UpperTriangular)
             if info != 0
-                return UpperTriangular(A), info
+                @warn "incremental Cholesky failed"
+                return info
             end
             A[k,k] = Akk
             AkkInv = inv(copy(Akk'))
@@ -189,7 +189,7 @@ function chol_continue!(A::AbstractMatrix{T},
             end
         end
     end
-    return UpperTriangular(A), convert(LinearAlgebra.BlasInt, 0)
+    return convert(LinearAlgebra.BlasInt, 0)
 end
 
 

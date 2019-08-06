@@ -3,7 +3,7 @@ using Plots
 using GaussianProcesses
 using LinearAlgebra, Random
 
-N = 400
+N = 5000
 
 # --                   -- #
 # 1D regression problem   #
@@ -19,17 +19,16 @@ t_lr_0 = zeros(4)
 t_lr_1 = zeros(4)
 t_lr_2 = zeros(4)
 
-#for (i, V) in enumerate([2, 4, 6, 8])
-V = 4
+for (i, V) in enumerate([2, 4, 6, 8, 10])
 
     # SPN-GP with a mutliple independent GPs
     config = SPNGPConfig(
         SE(log(1.0), log(1.0)), # kernel function / kernel functions
         log(2), # log σ - Noise
-        20, # max number of samples per sub-region
+        10, # max number of samples per sub-region
         2, # K = number of splits per split node (not used)
         V, # V = number of children under a sum node
-        2, # maxiumum depth of the tree
+        3, # maxiumum depth of the tree
         0.25, # relative noise used to displace split positions
         true # use sum root
     )
@@ -43,18 +42,18 @@ V = 4
     # update D
     getOverlap(spn, D, gpids);
 
-#    t_naive[i] = mean(_ -> fit_naive!(spn), 1:100)
-#    t_lr_0[i] = mean(_ -> fit!(spn, D, τ = 0.0), 1:100)
-#    t_lr_1[i] = mean(_ -> fit!(spn, D, τ = 0.1), 1:100)
-    #t_lr_2[i] = mean(_ -> fit!(spn, D, τ = 0.2), 1:100)
+    #t_naive[i] = mean(_ -> fit_naive!(spn), 1:100)
+    t_lr_0[i] = mean(_ -> fit!(spn, D, τ = 0.0), 1:10)
+    t_lr_1[i] = mean(_ -> fit!(spn, D, τ = 0.01), 1:10)
+    t_lr_2[i] = mean(_ -> fit!(spn, D, τ = 0.015), 1:10)
 
-#end
+end
 
 #plot([2,4,6,8], t_naive, label = "naive", xlabel = "# children under sum", ylabel = "time taken in sec")
-#plot!([2,4,6,8], t_lr_0, label = "tau = 0.0")
-#plot!([2,4,6,8], t_lr_1, label = "tau = 0.1")
-#plot!([2,4,6,8], t_lr_2, label = "tau = 0.2")
+plot([2,4,6,8], t_lr_0, label = "tau = 0.0", xlabel = "# children under sum", ylabel = "time taken in sec")
+plot!([2,4,6,8], t_lr_1, label = "tau = 0.01")
+plot!([2,4,6,8], t_lr_2, label = "tau = 0.015")
 
-#savefig("timetaken.png")
+savefig("timetaken.png")
 
 @info "finished experiment"
