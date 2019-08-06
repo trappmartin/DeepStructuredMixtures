@@ -1,25 +1,30 @@
 """
-# AdvancedCholeskey module
+# AdvancedCholesky module
 
 This module aims to implement extensions to existing Cholesky factorisations
 available in Julia.
 
 """
-module AdvancedCholeskey
+module AdvancedCholesky
 using LinearAlgebra, Statistics, Random
 import LinearAlgebra.lowrankupdate
 
 genCov(D::Int) = Symmetric(rand(D,D) .+ Matrix(I*D,D,D))
 
+
 function lowrankupdate!(C::Cholesky, v::StridedVector, k::Int)
+    lowrankupdate!(C.factors, v, k, C.uplo)
+    return C
+end
+
+function lowrankupdate!(A::Matrix, v::StridedVector, k::Int, uplo::Char)
     @assert k > 0
 
-    A = C.factors
     n = length(v)
     if (size(C,1)-(k-1)) != n
         throw(DimensionMismatch("updating vector must fit size of factorization"))
     end
-    if C.uplo == 'U'
+    if uplo == 'U'
         conj!(v)
     end
 
@@ -32,7 +37,7 @@ function lowrankupdate!(C::Cholesky, v::StridedVector, k::Int)
         @inbounds A[i,i] = r
 
         # Update remaining elements in row/column
-        if C.uplo == 'U'
+        if uplo == 'U'
             @inbounds for j = i + 1:n
                 Aij = A[i,j]
                 vj  = v[j-(k-1)]
@@ -167,7 +172,7 @@ function chol_continue!(A::AbstractMatrix{T},
 
     @inbounds begin
         for k = ki:n
-            @simd for i = 1:k - 1
+            for i = 1:k - 1
                 A[k,k] -= A[i,k]'A[i,k]
             end
             Akk, info = LinearAlgebra._chol!(A[k,k], UpperTriangular)
@@ -177,7 +182,7 @@ function chol_continue!(A::AbstractMatrix{T},
             A[k,k] = Akk
             AkkInv = inv(copy(Akk'))
             for j = k + 1:n
-                @simd for i = 1:k - 1
+                for i = 1:k - 1
                     A[k,j] -= A[i,k]'A[i,j]
                 end
                 A[k,j] = AkkInv*A[k,j]

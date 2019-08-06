@@ -174,7 +174,7 @@ function _buildGP(X::AbstractMatrix,
             gp.nobs = length(y)
             gp.dim = size(X,2)
             gp.data = GaussianProcesses.KernelData(gp.kernel, gp.x, gp.x, gp.covstrat)
-            gp.cK = GaussianProcesses.alloc_cK(gp.covstrat, gp.nobs)
+            gp.cK = GaussianProcesses.alloc_cK(gp.nobs)
             add!(node, GPNode(gensym("GP"), Vector{Node}(), gp, myobs), log(w[v]))
         end
         return node
@@ -190,7 +190,7 @@ function _buildGP(X::AbstractMatrix,
         gp.nobs = length(y)
         gp.dim = size(X,2)
         gp.data = GaussianProcesses.KernelData(gp.kernel, gp.x, gp.x, gp.covstrat)
-        gp.cK = GaussianProcesses.alloc_cK(gp.covstrat, gp.nobs)
+        gp.cK = GaussianProcesses.alloc_cK(gp.nobs)
         return GPNode(gensym("GP"), Vector{Node}(), gp, myobs)
     end
 end

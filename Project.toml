@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [deps]
 AxisArrays = "39de3d68-74b9-583c-8d2d-e117c070f3a9"
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 GaussianProcesses = "891a1506-143c-57d2-908e-e1f8e92e6de9"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
