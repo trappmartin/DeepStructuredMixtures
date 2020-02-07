@@ -1,0 +1,6 @@
+*.swp
+*.tar
+*.tar.gz
+*.ipynb_checkpoints
+Manifest.toml
+*.svg
