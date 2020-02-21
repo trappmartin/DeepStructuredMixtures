@@ -15,7 +15,7 @@ function kernelidfunction(spn::Union{GPSplitNode, GPSumNode})
     return x, y
 end
 
-@recipe function f(model::Union{DSMGP,PoE,gPoE,rBCM}; β=0.95, obsv=true, var=false, n=100, xmin=-Inf, xmax=Inf)
+@recipe function f(model::Union{DSMGP,PoE,gPoE,rBCM}; β=0.95, obsv=true, var=false, n=100, xmin=-Inf, xmax=Inf, filled = true)
 
     root = model.root
 
@@ -41,25 +41,37 @@ end
         Σ[Σ .< 0] .= 0.0
         err = invΦ((1+β)/2)*sqrt.(Σ)
 
-        @series begin
-            seriestype := :path
-            linewidth := 1.5
-            model isa DSMGP ? label --> "DSMGP" : label --> "PoE"
-            x,y
-        end
-        @series begin
-            primary := false
-            seriestype := :path
-            linewidth := 1.4
-            linestyle := :dot
-            x,y.-err
-        end
-        @series begin
-            primary := false
-            seriestype := :path
-            linewidth := 1.4
-            linestyle := :dot
-            x,y.+err
+        if filled
+            @series begin
+                seriestype := :path
+                ribbon := err
+                fillcolor --> :orange
+                linewidth --> 1
+                linestyle := :dash
+                model isa DSMGP ? label --> "DSMGP" : label --> "PoE"
+                x,y
+            end
+        else
+            @series begin
+                seriestype := :path
+                linewidth := 1.5
+                model isa DSMGP ? label --> "DSMGP" : label --> "PoE"
+                x,y
+            end
+            @series begin
+                primary := false
+                seriestype := :path
+                linewidth := 1.4
+                linestyle := :dot
+                x,y.-err
+            end
+            @series begin
+                primary := false
+                seriestype := :path
+                linewidth := 1.4
+                linestyle := :dot
+                x,y.+err
+            end
         end
         if obsv
             @series begin
@@ -68,7 +80,7 @@ end
                 seriestype := :scatter
                 markershape := :circle
                 markercolor := :black
-                markersize := 0.7
+                #markersize := 0.7
                 getx(root), gety(root)
             end
         end
@@ -118,7 +130,7 @@ end
         seriestype := :path
         ribbon := err
         fillcolor --> :lightblue
-        linewidth := 1
+        linewidth --> 1
         linestyle := :dash
         label --> "GP"
         x,y
@@ -130,7 +142,7 @@ end
             seriestype := :scatter
             markershape := :circle
             markercolor := :black
-            markersize := 0.7
+            #markersize := 0.7
             gp.x, gp.y + get(gp.mean, gp.N)
         end
     end

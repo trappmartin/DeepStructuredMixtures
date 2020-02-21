@@ -227,16 +227,18 @@ function _predictrBCM(node::GPSplitNode, x::AbstractMatrix)
     β = zeros(size(x,1))
 
     gp = leftGP(node)
-    s = getvariance(gp.kernel) + getnoise(gp)
+    s = diag(kernelmatrix(gp.kernel, x, x)) .+ getnoise(gp)
 
     for (k,c) in enumerate(children(node))
         μ_, t_ = _predictPoE(c, x)
-        β_ = 0.5 * (log(s) .- log.(inv.(t_)))
+        β_ = 0.5 * (log.(s) - log.(inv.(t_)))
+        @info β_[1:2]
+        @info t_[1:2]
         t[:] += β_.*t_
         μ[:] += β_ .* t_ .* μ_
         β[:] += β_
     end
-    z = (1 .- β) / s
+    z = (1 .- β) ./ s
     t += z
     t[t .<= 0] .= 1e-8
     return μ ./ t, t
