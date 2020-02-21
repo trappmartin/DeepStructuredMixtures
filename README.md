@@ -1,9 +1,9 @@
 # Deep Mixtures of Gaussian Processes
 
-This package implements deep hierarchical mixtures of Gaussian processes in Julia 1.3.
+This package implements Deep Structured Mixtures of Gaussian Processes (DSMGP) [1] in Julia 1.3.
 
 ## Installation
-To use this package you need to have Julia 1.3 installed on your machine.
+To use this package you need Julia 1.3 installed on your machine.
 
 Inside the Julia REPL, you can install the package using:
 ```julia
@@ -11,104 +11,144 @@ using Pkg()
 Pkg.install("https://github.com/trappmartin/DeepStructuredMixtures")
 ```
 
-After the installation you can run the package using:
+After the installation you can load the package using:
 ```julia
 using DeepStructuredMixtures
 ```
 
+Note that the package will be compiled the first time you load it.
+
+## Python bridge
+The package can be used from python using the excelent pyjulia package: https://github.com/JuliaPy/pyjulia
+
+## Usage
+The following example explains the usage of `DeepStructuredMixtures`. Note that this example assume that you have `Plots` installed in your Julia environment.
+
+First, we load the necessary libraries:
+```julia
+using Plots
+using DeepStructuredMixtures
+using Random
+```
+
+Now we can create some synthetic data or load some real data:
+```julia
+xtrain = collect(range(0, stop=1, length = 100))
+ytrain = sin.(xtrain*4*pi + randn(100)*0.2)
+```
+
+We will now use a squared exponential kernel-function with a constant mean-function to fit the DSMGP. See API for more options.
+```julia
+kernelf = IsoSE(1.0, 1.0)
+meanf = ConstMean(mean(xtrain))
+```
+
+Now we can construct a DSMGP on our data and find optimial hyperparameters.
+```julia
+K = 4 # Number of splits per product node
+V = 3 # Number of children per sum node
+M = 10 # Minimum number of observations per expert
+
+model = buildDSMGP(reshape(xtrain,:,1), ytrain, V, K; M = M, kernel = kernelf, meanFun = meanf)
+train!(model)
+```
+
+Note that for large data sets it is recommended to train the DSMGP with `V = 1` and copy the hyper-parameters to a model with `V > 1` using the following commands:
+```julia
+model1 = buildDSMGP(reshape(xtrain,:,1), ytrain, 1, V; M = M, kernel = kernelf, meanFun = meanf)
+train!(model1)
+
+# get hyper-parameters
+hyp = reduce(vcat, params(leftGP(model1.root), logscale=true))
+
+model = buildDSMGP(reshape(xtrain,:,1), ytrain, K, V; M = M, kernel = kernelf, meanFun = meanf)
+
+# set hyper-parameters instead of learning from scratch
+setparams!(model.root, hyp)
+fit!(model)
+```
+
+Finally, we can plot the model:
+```julia
+plot(model)
+```
+
+and use it for predictions:
+```julia
+xtest = collect(range(0.5, stop=1.5, length = 100))
+m, s = predict(model, reshape(xtest,:,1))
+
+err = DeepStructuredMixtures.invΦ((1+0.95)/2)*sqrt.(s)
+
+plot(xtest, m)
+plot!(xtest, m + err, primary=false, linestyle=:dot)
+plot!(xtest, m - err, primary=false, linestyle=:dot)
+```
+
+Note that all methods assume that `xtrain` and `xtest` are matrices, which is why we use `reshape(xtest,:,1)` to reshape the respective vectors to a matrix.
+
+
 ## API
 
-A Gaussian Processes object can be instantiate and trained using the following commands:
+#### Mean functions
 ```julia
-# create some training data
-x = randn(100, 2) # create 100 samples with 2 dimensions
-y = randn(100) # create 100 samples
-
-# select a mean function (only ConstMean is implemented atm)
-meanf = ConstMean(0.0)
-
-# select a kernel function (IsoSE or IsoLinear)
-kernelf = IsoSE(1.0, 1.0)
-
-# construct a Gaussian process
-gp = GaussianProcess(x, y, mean = meanf, kernel = kernelf)
-
-# train a Gaussian process for 1000 iterations using RMSProp
-train!(gp, iterations = 1_000)
-
-# make predictions
-xtest = randn(50, 2)
-m, S = prediction(gp, xtest)
-
-# Note that S is a full covariance matrix, use diag if necessary
-s = diag(S)
-
-# plot the Gaussian process
-plot(gp)
+# A constant mean of zero aka zero-mean function.
+ConstMean(0.0) 
 ```
 
-Models for distributed Gaussian process regression can be instantiated and trained as follows:
-
+#### Kernel functions
 ```julia
-x, y ... # some training data
+# A squared exponential kernel-function with lengthscale 1 and std of 1.
+IsoSE(1.0, 1.0)
 
-# Number of splits per split node
-K = 8
+# A squared exponential kernel-function with ARD and lengthscales of 1 and std of 1.
+ArdSE(ones(10), 1.0)
 
-# Number of children under a sum node (>1 allows inference over splits)
-V = 2
+# A linear kernel-function with lengthscale of 1.
+IsoLinear(1.0)
 
-# Minimum number of observations per Gaussian process
-M = 50
+# A linear kernel-function with ARD and lengthscales of 1.
+ArdLinear(ones(10))
 
-# kernel function / functions
-kernel = IsoSE(1.0, 1.0) # for a single SE kernel
-kernel = ArdSE(ones(10), 1.0) # for a SE kernel with ARD for 10 dimensional data.
-kernel = KernelFunction[IsoSE(1.0, 1.0), IsoLinear(1.0)] # for inference over kernels
-
-# mean function
-meanf = ConstMean(0.0) # zero mean function
-
-# build a (generalized) product of experts (PoE) model
-model1 = buildPoE(x, y, K; generalized = true, M = M, kernel = kernel, meanFun = meanf)
-
-# build a (robust) Bayesian comittee machine (BCM) model with variance prior = 0.1
-model2 = buildrBCM(x, y, K, 0.1; robust = true, M = M, kernel = kernel, meanFun = meanf)
-
-# build a deep structured mixture of GPs model
-model3 = buildDSMGP(x, y, K, V; M = M, kernel = kernel, meanFun = meanf)
-
-# fit the DSMGP model using shared Cholesky fitting
-fit!(model3)
-
-# fit the PoE model using naive fitting
-fit_naive!(model1.root)
-
-# train a model using RMSProp
-train!(model1)
-train!(model2)
-train!(model3)
-
-# finetune DSMGP model parameters using RMSProp
-finetune!(model3)
-
-# infer the best splits and kernel functions
-update!(model3)
-
-# infer only the kernel function
-infer!(model3)
-
-# get statistics on the model
-stats(model3.root)
-
-# make predictions
-xtest ... # some test data
-m1, s1 = predict(model1, xtest) # Note that s is only a vector
-m2, s2 = predict(model2, xtest) # Note that s is only a vector
-m3, s3 = predict(model3, xtest) # Note that s is only a vector
-
-# plot the models
-plot(model1, label = "gPoE")
-plot!(model2, label = "rBCM")
-plot!(model3, label = "SPN-GP")
+# Composition of kernel-function for inference over kernel-functions.
+KernelFunction[IsoSE(1.0, 1.0), IsoLinear(1.0)] 
 ```
+
+#### Models
+```julia
+# An exact Gaussian process
+GaussianProcess(trainx, trainy, mean = meanf, kernel = kernelf)
+
+# A (generalized) product of experts (PoE) model with K splits per node and a miminum of M observations per expert
+buildPoE(trainx, trainy, K; generalized = true, M = M, kernel = kernelf, meanFun = meanf)
+
+# A (robust) Bayesian comittee machine (BCM) model with K splits per node and a miminum of M observations per expert
+buildrBCM(x, y, K; M = M, kernel = kernelf, meanFun = meanf)
+
+# A deep structured mixture of GPs (DSMGP) model with K splits per product node, V children per sum node and a miminum of M observations per expert.
+buildDSMGP(x, y, V, K; M = M, kernel = kernelf, meanFun = meanf)
+```
+
+#### Training
+```julia
+# train a model for 1000 iterations using RMSProp
+train!(model, iterations = 1_000)
+
+# fit the posterior of a hierarchical model, e.g. gPoE
+fit_naive!(model.root)
+
+# fit the posterior of a DSMGP using shared Cholesky
+fit!(model)
+```
+
+#### Prediction
+```julia
+# make predictions using a model, i.e., compute mean (s) and variance (s).
+m, s = prediction(model, testx)
+
+# plot a model and the training data.
+plot(model)
+```
+
+## Reference
+[1] Martin Trapp, Robert Peharz, Franz Pernkopf and Carl E. Rasmussen: Deep Structured Mixtures of Gaussian Processes. To appear at the International Conference on Artificial Intelligence and Statistics (AISTATS), 2020.
