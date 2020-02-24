@@ -232,8 +232,6 @@ function _predictrBCM(node::GPSplitNode, x::AbstractMatrix)
     for (k,c) in enumerate(children(node))
         μ_, t_ = _predictPoE(c, x)
         β_ = 0.5 * (log.(s) - log.(inv.(t_)))
-        @info β_[1:2]
-        @info t_[1:2]
         t[:] += β_.*t_
         μ[:] += β_ .* t_ .* μ_
         β[:] += β_
