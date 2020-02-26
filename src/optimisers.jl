@@ -23,21 +23,22 @@ function apply!(o::RMSProp, x, Δ)
   @. Δ *= η / (√acc + ϵ)
 end
 
-function train!(model::Union{DSMGP,PoE,gPoE,rBCM}; iterations = 10_000, optim = RMSProp(), λ = 0.05)
-    train!(model.root, model.D, model.gpmap, iterations=iterations, optim=optim, λ=λ)
+function train!(model::Union{DSMGP,PoE,gPoE,rBCM}; iterations = 10_000, optim = RMSProp(), λ = 0.05, randinit = true)
+    train!(model.root, model.D, model.gpmap, iterations=iterations, optim=optim, λ=λ, randinit = randinit)
 end
 
 function train!(spn::Union{GPSumNode,GPSplitNode}, D::AbstractMatrix, gpmap::BiDict;
                 iterations = 10_000,
                 optim = RMSProp(),
                 λ = 0.05, # early stopping
-                sharedGradients = false
+                sharedGradients = false,
+		randinit = true
                 )
 
     gp = leftGP(spn)
 
     n = gp isa Array ? sum(map(sum, nparams.(gp))) : sum(nparams(gp))
-    hyp = randn(n)
+    hyp = randinit ? randn(n) : reduce(vcat, params(gp, logscale=true))
     grad = zeros(n)
 
     nodes = SumProductNetworks.getOrderedNodes(spn)
