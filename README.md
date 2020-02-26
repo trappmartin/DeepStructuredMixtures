@@ -5,10 +5,9 @@ This package implements Deep Structured Mixtures of Gaussian Processes (DSMGP) [
 ## Installation
 To use this package you need Julia 1.3 installed on your machine.
 
-Inside the Julia REPL, you can install the package using:
+Inside the Julia REPL, you can install the package in the Pkg mode (type `]` in the REPL):
 ```julia
-using Pkg()
-Pkg.install("https://github.com/trappmartin/DeepStructuredMixtures")
+pkg> add https://github.com/trappmartin/DeepStructuredMixtures
 ```
 
 After the installation you can load the package using:
@@ -53,7 +52,7 @@ model = buildDSMGP(reshape(xtrain,:,1), ytrain, V, K; M = M, kernel = kernelf, m
 train!(model)
 ```
 
-Note that for large data sets it is recommended to train the DSMGP with `V = 1` and copy the hyper-parameters to a model with `V > 1` using the following commands:
+Note that for large data sets it is recommended to train the DSMGP with `V = 1` and use the hyper-parameters to initialise the training of a model with `V > 1`:
 ```julia
 model1 = buildDSMGP(reshape(xtrain,:,1), ytrain, 1, V; M = M, kernel = kernelf, meanFun = meanf)
 train!(model1)
@@ -65,7 +64,7 @@ model = buildDSMGP(reshape(xtrain,:,1), ytrain, K, V; M = M, kernel = kernelf, m
 
 # set hyper-parameters instead of learning from scratch
 setparams!(model.root, hyp)
-fit!(model)
+train!(model, randinit = false)
 ```
 
 Finally, we can plot the model:
@@ -123,6 +122,7 @@ GaussianProcess(trainx, trainy, mean = meanf, kernel = kernelf)
 buildPoE(trainx, trainy, K; generalized = true, M = M, kernel = kernelf, meanFun = meanf)
 
 # A (robust) Bayesian comittee machine (BCM) model with K splits per node and a miminum of M observations per expert
+# ! Training not implemented !
 buildrBCM(x, y, K; M = M, kernel = kernelf, meanFun = meanf)
 
 # A deep structured mixture of GPs (DSMGP) model with K splits per product node, V children per sum node and a miminum of M observations per expert.
@@ -151,4 +151,4 @@ plot(model)
 ```
 
 ## Reference
-[1] Martin Trapp, Robert Peharz, Franz Pernkopf and Carl E. Rasmussen: Deep Structured Mixtures of Gaussian Processes. To appear at the International Conference on Artificial Intelligence and Statistics (AISTATS), 2020.
+[1] Martin Trapp, Robert Peharz, Franz Pernkopf and Carl Edward Rasmussen: Deep Structured Mixtures of Gaussian Processes. To appear at the International Conference on Artificial Intelligence and Statistics (AISTATS), 2020.
