@@ -23,8 +23,8 @@ function apply!(o::RMSProp, x, Δ)
   @. Δ *= η / (√acc + ϵ)
 end
 
-function train!(model::Union{DSMGP,PoE,gPoE,rBCM}; iterations = 10_000, optim = RMSProp(), λ = 0.05, randinit = true)
-    train!(model.root, model.D, model.gpmap, iterations=iterations, optim=optim, λ=λ, randinit = randinit)
+function train!(model::Union{DSMGP,PoE,gPoE,rBCM}; iterations = 10_000, optim = RMSProp(), λ = 0.05, randinit = true, earlystop = 10)
+    train!(model.root, model.D, model.gpmap, iterations=iterations, optim=optim, λ=λ, randinit = randinit, earlystop = earlystop)
 end
 
 function train!(spn::Union{GPSumNode,GPSplitNode}, D::AbstractMatrix, gpmap::BiDict;
@@ -32,7 +32,7 @@ function train!(spn::Union{GPSumNode,GPSplitNode}, D::AbstractMatrix, gpmap::BiD
                 optim = RMSProp(),
                 λ = 0.05, # early stopping
                 sharedGradients = false,
-		randinit = true
+                randinit = true, earlystop = 10
                 )
 
     gp = leftGP(spn)
@@ -83,7 +83,7 @@ function train!(spn::Union{GPSumNode,GPSplitNode}, D::AbstractMatrix, gpmap::BiD
             c = 0
         end
 
-        if c >= 10
+        if c >= earlystop
             @info "Early stopping at iteration $iteration with δ: $δ"
             return spn, ℓ[1:iteration]
         end
