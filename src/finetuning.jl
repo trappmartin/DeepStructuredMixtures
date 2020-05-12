@@ -1,12 +1,11 @@
 export finetune!
 
-function finetune!(model::DSMGP; iterations = 1000, optim = RMSProp(), λ = 0.5)
-    return finetune!(model.root, model.D, model.gpmap, iterations=iterations, optim=optim, λ=λ)
+function finetune!(model::DSMGP, optim; iterations = 1000, λ = 0.5)
+    return finetune!(model.root, model.D, model.gpmap, optim, iterations=iterations, λ=λ)
 end
 
-function finetune!(spn::Union{GPSumNode,GPSplitNode}, D::AbstractMatrix, gpmap;
+function finetune!(spn::Union{GPSumNode,GPSplitNode}, D::AbstractMatrix, gpmap, optim;
                 iterations = 1000,
-                optim = RMSProp(),
                 λ = 0.5 # early stopping
                 )
 
@@ -53,7 +52,7 @@ function finetune!(spn::Union{GPSumNode,GPSplitNode}, D::AbstractMatrix, gpmap;
 
             fill!(grad, 0.0)
             ∇mll!(spn, 0.0, 0.0, L, L[spn.id], grad, view(D, gpmap.x[gp.id], :), gpmap)
-            apply!(optim, hyp_, grad)
+            Flux.Optimise.apply!(optim, hyp_, grad)
             hyp[gp.id] += grad
         end
 

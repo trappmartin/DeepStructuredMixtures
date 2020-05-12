@@ -1,35 +1,12 @@
 using ProgressMeter
 export train!
 
-
-"""
-    RMSProp(η = 0.001, ρ = 0.9)
-[RMSProp](https://www.cs.toronto.edu/~tijmen/csc321/slides/lecture_slides_lec6.pdf)
-optimiser. Parameters other than learning rate don't need tuning. Often a good
-choice for recurrent networks.
-"""
-mutable struct RMSProp
-  eta::Float64
-  rho::Float64
-  acc::IdDict
+function train!(model::Union{DSMGP,PoE,gPoE,rBCM}, optim; iterations = 10_000, λ = 0.05, randinit = true, earlystop = 10)
+    train!(model.root, model.D, model.gpmap, optim, iterations=iterations, λ=λ, randinit = randinit, earlystop = earlystop)
 end
 
-RMSProp(;η = 0.001, ρ = 0.9) = RMSProp(η, ρ, IdDict())
-
-function apply!(o::RMSProp, x, Δ)
-  η, ρ = o.eta, o.rho
-  acc = get!(o.acc, x, zero(x))::typeof(x)
-  @. acc = ρ * acc + (1 - ρ) * Δ^2
-  @. Δ *= η / (√acc + ϵ)
-end
-
-function train!(model::Union{DSMGP,PoE,gPoE,rBCM}; iterations = 10_000, optim = RMSProp(), λ = 0.05, randinit = true, earlystop = 10)
-    train!(model.root, model.D, model.gpmap, iterations=iterations, optim=optim, λ=λ, randinit = randinit, earlystop = earlystop)
-end
-
-function train!(spn::Union{GPSumNode,GPSplitNode}, D::AbstractMatrix, gpmap::BiDict;
+function train!(spn::Union{GPSumNode,GPSplitNode}, D::AbstractMatrix, gpmap::BiDict, optim;
                 iterations = 10_000,
-                optim = RMSProp(),
                 λ = 0.05, # early stopping
                 sharedGradients = false,
                 randinit = true, earlystop = 10
@@ -98,7 +75,7 @@ function train!(spn::Union{GPSumNode,GPSplitNode}, D::AbstractMatrix, gpmap::BiD
 
         fill!(grad, 0.0)
         ∇mll!(spn, 0.0, 0.0, L, L[spn.id], grad)
-        apply!(optim, hyp, grad)
+        Flux.Optimise.apply!(optim, hyp, grad)
         hyp += grad
     end
 
@@ -156,7 +133,7 @@ function train!(gp::GaussianProcess;
         ∇mll!(gp, grad)
 
         oldhyp = copy(hyp)
-        apply!(optim, hyp, grad)
+        Flux.Optimise.apply!(optim, hyp, grad)
         hyp += grad
     end
 

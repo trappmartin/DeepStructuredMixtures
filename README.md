@@ -49,13 +49,16 @@ V = 3 # Number of children per sum node
 M = 10 # Minimum number of observations per expert
 
 model = buildDSMGP(reshape(xtrain,:,1), ytrain, V, K; M = M, kernel = kernelf, meanFun = meanf)
-train!(model)
+train!(model, ADAM())
+
+# finally we perfom exact posterior infence
+update!(model)
 ```
 
 Note that for large data sets it is recommended to train the DSMGP with `V = 1` and use the hyper-parameters to initialise the training of a model with `V > 1`:
 ```julia
 model1 = buildDSMGP(reshape(xtrain,:,1), ytrain, 1, V; M = M, kernel = kernelf, meanFun = meanf)
-train!(model1)
+train!(model1, ADAM())
 
 # get hyper-parameters
 hyp = reduce(vcat, params(leftGP(model1.root), logscale=true))
@@ -64,7 +67,7 @@ model = buildDSMGP(reshape(xtrain,:,1), ytrain, K, V; M = M, kernel = kernelf, m
 
 # set hyper-parameters instead of learning from scratch
 setparams!(model.root, hyp)
-train!(model, randinit = false)
+train!(model, ADAM(), randinit = false)
 ```
 
 Finally, we can plot the model:
@@ -76,12 +79,6 @@ and use it for predictions:
 ```julia
 xtest = collect(range(0.5, stop=1.5, length = 100))
 m, s = predict(model, reshape(xtest,:,1))
-
-err = DeepStructuredMixtures.invΦ((1+0.95)/2)*sqrt.(s)
-
-plot(xtest, m)
-plot!(xtest, m + err, primary=false, linestyle=:dot)
-plot!(xtest, m - err, primary=false, linestyle=:dot)
 ```
 
 Note that all methods assume that `xtrain` and `xtest` are matrices, which is why we use `reshape(xtest,:,1)` to reshape the respective vectors to a matrix.
@@ -130,9 +127,14 @@ buildDSMGP(x, y, V, K; M = M, kernel = kernelf, meanFun = meanf)
 ```
 
 #### Training
+Note that DeepStructuredMixtures reexports Flux.jl and uses the optimisers available in Flux. We refer to the Flux.jl documentation of the available optimisers.
+
 ```julia
 # train a model for 1000 iterations using RMSProp
-train!(model, iterations = 1_000)
+train!(model, ADAM(), iterations = 1_000)
+
+# fine-tune a model for 1000 iterations using RMSProp
+finetune!(model, ADAM(), iterations = 1_000)
 
 # fit the posterior of a hierarchical model, e.g. gPoE
 fit_naive!(model.root)

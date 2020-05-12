@@ -2,6 +2,7 @@ module DeepStructuredMixtures
 
     using Reexport
     @reexport using SumProductNetworks
+    @reexport using Flux
     using RecipesBase
     using Distributions
     using StatsFuns
