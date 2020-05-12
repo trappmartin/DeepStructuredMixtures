@@ -111,6 +111,83 @@ end
     end
 end
 
+@recipe function f(root::Union{GPSplitNode,GPSumNode}; β=0.95, obsv=true, var=false, n=100, 
+        xmin=-Inf, xmax=Inf, filled = true, show_splits = false)
+
+    lgp = leftGP(root)
+    rgp = rightGP(root)
+
+    D = lgp isa AbstractArray ? first(lgp).D : lgp.D
+
+    if D == 1
+
+        if isinf(xmin)
+            xmin = lgp isa AbstractArray ? mapreduce(gp -> minimum(gp.x), min, lgp) : minimum(lgp.x)
+        end
+        if isinf(xmax)
+            xmax = rgp isa AbstractArray ? mapreduce(gp -> maximum(gp.x), max, rgp) : maximum(rgp.x)
+        end
+
+        xlims --> (xmin, xmax)
+        xmin, xmax = plotattributes[:xlims]
+        x = range(xmin, stop=xmax, length=100)
+
+        y, Σ = predict(root, reshape(x,:,1))
+        Σ[Σ .< 0] .= 0.0
+        err = DeepStructuredMixtures.invΦ((1+β)/2)*sqrt.(Σ)
+
+        if filled
+            @series begin
+                seriestype := :path
+                ribbon := err
+                fillcolor := :orange
+                linewidth --> 1
+                opacity := 0.75
+                x,y
+            end
+        else
+            @series begin
+                seriestype := :path
+                linewidth := 3
+                x,y
+            end
+            @series begin
+                primary := false
+                seriestype := :path
+                linewidth := 1
+                x,y.-err
+            end
+            @series begin
+                primary := false
+                seriestype := :path
+                linewidth := 1
+                x,y.+err
+            end
+        end
+        if obsv
+            @series begin
+                primary := false
+                #label := "observations"
+                seriestype := :scatter
+                markershape := :circle
+                markercolor := :black
+                markersize := 3
+                getx(root), gety(root)
+            end
+        end
+        if show_splits && (root isa GPSplitNode)
+            @series begin
+                primary := false
+                seriestype := :vline
+                linewidth := 1
+                fillcolor := :red
+                linestyle := :dash
+                root.split[1:end-1]
+            end
+        end 
+    end
+end
+
 @recipe function f(gp::GaussianProcess; β=0.95, obsv=true, var=false, n=100, xmin=-Inf, xmax=Inf)
 
     @assert gp.D == 1
