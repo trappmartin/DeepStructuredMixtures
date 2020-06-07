@@ -154,3 +154,6 @@ plot(model)
 
 ## Reference
 [1] Martin Trapp, Robert Peharz, Franz Pernkopf and Carl Edward Rasmussen: Deep Structured Mixtures of Gaussian Processes. To appear at the International Conference on Artificial Intelligence and Statistics (AISTATS), 2020.
+
+## Acknowledgments
+This project received funding from the European Union's Horizon 2020 research and innovation programme under the Marie Sklodowska-Curie Grant Agreement No. 797223 (HYBSPN).
