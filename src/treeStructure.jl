@@ -46,7 +46,6 @@ function getSplits(X::AbstractMatrix{T},
 
         c = 0
         m = mean(X[idx,d])
-        m = median(X[idx,d])
 
         while ((z1 == 0) || (z2 == 0))
             a = rand(Beta(α, β))*v + l
@@ -141,6 +140,7 @@ function _buildSplit(
                   )
 
     @assert all(isfinite.(X))
+    @assert all( l < u for (l,u) in zip(lowerBound, upperBound))
 
     l = max(lowerBound[d])
     u = min(upperBound[d])
@@ -293,6 +293,8 @@ function _buildGP(X::AbstractMatrix,
         gp = GaussianProcess(X, y, kernel = kern, mean = mfun,
                                  logNoise = obsNoise, run_cholesky = false)
 
+        @assert all( l < u for (l,u) in zip(lowerBound, upperBound))
+        
         return GPNode(gensym("GP"),
                       Vector{Node}(),
                       gp,

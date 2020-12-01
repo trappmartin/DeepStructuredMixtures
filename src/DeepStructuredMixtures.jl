@@ -58,7 +58,7 @@ module DeepStructuredMixtures
         split::Vector{Tuple{Int, Float64}}
     end
 
-    struct GPNode <: Leaf
+    mutable struct GPNode <: Leaf
         id::Symbol
         parents::Vector{<:Node}
         dist::GaussianProcess
