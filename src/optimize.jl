@@ -19,7 +19,7 @@ end
 @inline mll(node::GPSplitNode) = mapreduce(mll, +, children(node))
 function mll(node::GPSumNode)
     K = length(node)
-    logsumexp(map(c -> -log(K)+mll(c), children(node)))
+    StatsFuns.logsumexp(map(c -> -log(K)+mll(c), children(node)))
 end
 
 @inline mll(model::Union{DSMGP,PoE}) = mll(model.root)
@@ -34,7 +34,7 @@ function mll!(node::GPSplitNode, ℓ::AxisArray)
 end
 function mll!(node::GPSumNode, ℓ::AxisArray)
     K = length(node)
-    ℓ[node.id] = logsumexp(map(c -> -log(K)+mll!(c, ℓ), children(node)))
+    ℓ[node.id] = StatsFuns.logsumexp(map(c -> -log(K)+mll!(c, ℓ), children(node)))
     return ℓ[node.id]
 end
 
